@@ -137,13 +137,26 @@ this as a known limitation.
 - **AcroForm:** render via PDFium's `renderFormFields` flag; capture filled state on save by re-reading the PDF and copying field values via pdf-lib. Option to flatten on export.
 - **XFA:** detect via PDFium failure or `/XFA` key in catalog → switch that doc's viewport to PDF.js with XFA layer. Read-only fill in v1; document the limitation.
 
-### 4.4 Page operations — *not yet*
-- Thumbnail rail: **reorder** (drag-and-drop, multi-select), **rotate** 90° CW/CCW, **delete**.
-- **Insert from another PDF**: file picker → choose insertion point → append or insert at index. Source pages copied via pdf-lib `copyPages`.
-- **Extract / split:** select pages → "Extract to new PDF…" saves a subset.
-- **Merge:** File → "Merge PDFs…" opens multi-file picker, concatenates in chosen order, opens result as a new untitled document.
+### 4.4 Page operations (**implemented in M2 / M2.1, except insert + merge**)
 
-All page ops apply to the in-memory edit graph (sidecar), not the source file, until the user saves.
+Edit model is a list of `VirtualPage {sourceIndex, rotation}` stored in the
+renderer's Zustand store. Each mutation pushes the prior snapshot to the
+undo stack and clears redo; `markSaved()` snapshots current as the
+"clean" reference. Dirty = current pages ≠ saved snapshot. Dirty state
+also feeds Electron's `setDocumentEdited` and prefixes the title with "• ".
+
+- **Multi-select in thumbnails** ✅: click, Ctrl+click toggle, Shift+click range.
+- **Rotate** ✅: 90° CW/CCW. Toolbar buttons, `Ctrl+[` / `Ctrl+]`. Operates on selection or current page. PDFium's render flag handles the actual rotation; layout swaps width/height for 90°/270°.
+- **Delete** ✅: Toolbar `✕`, `Delete` / `Backspace`. Refuses to delete the last page. Adjusts `currentPage` to stay valid.
+- **Reorder** ✅: HTML5 drag-and-drop in the thumbnail rail with above/below drop indicator. If the dragged thumb is in the current selection, the whole selection moves together. `moveIndexMap()` rewrites selection and `currentPage` so they follow the move.
+- **Undo / Redo** ✅: `Ctrl+Z` / `Ctrl+Shift+Z` (and `Ctrl+Y`). Toolbar buttons. Snapshot-based undo stack capped at 200 entries.
+- **Save** ✅: `Ctrl+S`. `pdf-lib` bakes the edit graph by recreating the document via `copyPages` in the requested order and writing absolute `/Rotate` = source rotation + delta. On success, PDFium reopens the file so subsequent renders see the new state.
+- **Save As** ✅: `Ctrl+Shift+S` or File menu. `dialog.showSaveDialog` → bake to chosen path. Auto-appends `.pdf`.
+- **Export Selection As** ✅: File menu or toolbar `⇲` (enabled when selection ≠ ∅). Writes a subset of pages to a chosen path.
+- **Insert from another PDF**: planned. Requires multi-source `VirtualPage` (add a `sourceId` field) and holding multiple PDFium docs open at once.
+- **Merge**: planned. Same multi-source model — pick N files, build a virtual page list spanning them, save to a new untitled doc.
+
+All page ops apply to the in-memory edit graph, not the source file, until the user saves. Sidecar (`.preview-edits.json`) for crash recovery is still planned.
 
 ### 4.5 Print — *not yet*
 Custom print UI (renderer) that drives CUPS:
@@ -153,11 +166,12 @@ Custom print UI (renderer) that drives CUPS:
 - UI controls: printer, copies, page range, page subset (odd/even/custom), duplex, paper size, orientation, scaling (fit / 100% / custom), color/mono.
 - Background print job tracked via `lpstat -W not-completed` (best-effort status — non-blocking).
 
-### 4.6 File I/O (**partial, M0**)
-- File → Open menu **(done)**, drag-drop onto window **(planned)**, `app file.pdf` CLI **(done)**.
-- One window per document. Opening same path focuses existing window. Blank window is reused on next Open. **(done)**
+### 4.6 File I/O (**M0 + M2 work, recent files still planned**)
+- File → Open menu ✅ (`Ctrl+O`), drag-and-drop onto window ✅, double-click empty placeholder ✅, `app file.pdf` CLI ✅.
+- One window per document. Opening same path focuses existing window. Blank window is reused on next Open. ✅
+- Save ✅ / Save As ✅ / Export Selection As ✅.
 - "Recent" list (last 10, stored in `~/.config/<app>/recent.json`). *(planned)*
-- Save / Save As / Export Flattened Copy / Export as Images (PNG per page). *(planned)*
+- Export Flattened Copy / Export as Images (PNG per page). *(planned, M4 / M6)*
 
 ---
 
@@ -206,8 +220,8 @@ pdf/
 │   │   ├── menu.ts          application menu
 │   │   ├── pdfium.ts        PDFium-WASM wrapper (FPDF_* low-level)
 │   │   ├── fonts.ts         system-font mapper (FPDF_SetSystemFontInfo)
+│   │   ├── save.ts          pdf-lib bake: copyPages + abs /Rotate
 │   │   ├── print.ts         CUPS pipeline                  [planned]
-│   │   ├── pdf-writer.ts    pdf-lib bake worker            [planned]
 │   │   ├── sidecar.ts                                      [planned]
 │   │   └── recent.ts                                       [planned]
 │   ├── preload/
@@ -215,24 +229,24 @@ pdf/
 │   ├── renderer/
 │   │   ├── index.html
 │   │   └── src/
-│   │       ├── App.tsx
-│   │       ├── store.ts         Zustand
-│   │       ├── keys.ts          global keyboard shortcuts
-│   │       ├── Toolbar.tsx
+│   │       ├── App.tsx           window-level DnD open
+│   │       ├── store.ts          Zustand + edit slice (undo/redo, selection)
+│   │       ├── keys.ts           global keyboard shortcuts
+│   │       ├── Toolbar.tsx       undo/redo/rotate/delete/save buttons
 │   │       ├── SearchBar.tsx
 │   │       ├── SideNav.tsx
-│   │       ├── Thumbnails.tsx
-│   │       ├── Viewport.tsx     virtualized page list
-│   │       ├── PdfPage.tsx      single page + highlight overlay
+│   │       ├── Thumbnails.tsx    selection + DnD reorder
+│   │       ├── Viewport.tsx      virtualized page list
+│   │       ├── PdfPage.tsx       single page + highlight overlay
 │   │       └── index.css
 │   └── shared/
 │       ├── ipc.ts           DocInfo, PageRect, RenderedPageMsg
-│       ├── ops.ts           edit-op types               [planned]
+│       ├── edit.ts          VirtualPage, applyRotate/Delete/Move helpers
 │       └── annotations.ts   annotation schema           [planned]
 ├── resources/
-│   ├── icon.png             [TODO]
+│   ├── icon.png             placeholder
 │   └── bin/qpdf             bundled native             [planned]
-└── tests/                                              [planned]
+└── tests/                   Vitest — fonts, store, edit, save, pdfium
 ```
 
 ---
@@ -242,33 +256,41 @@ pdf/
 ```ts
 // Implemented
 window.pdf = {
+  // Read
   openCurrent(): Promise<DocInfo | null>,
-  renderPage(id, pageIndex, scale): Promise<RenderedPageMsg | null>,
+  renderPage(id, pageIndex, scale, rotation?): Promise<RenderedPageMsg | null>,
   getText(id, pageIndex): Promise<string | null>,
   findMatchRects(id, pageIndex, query): Promise<PageRect[] | null>,
+
+  // Write (M2/M2.1)
+  save(id, pages: VirtualPage[]): Promise<{ ok: true } | { ok: false; error: string }>,
+  saveAs(id, pages, defaultName): Promise<{ ok: true; path } | { ok: false; error? }>,
+  setDirty(dirty): void,
+
+  // File / window
   close(id): void,
-  onDocAssigned(cb): () => void,   // main → renderer push when a blank
-                                   // window gets bound to a path
+  showOpenDialog(): void,
+  openPath(path): void,
+  pathForDroppedFile(file): string,
+  onDocAssigned(cb): () => void,
+  onMenu('save' | 'saveAs' | 'extractSelection', cb): () => void,
 }
 
-// Planned for M2+
+// Planned for M3+
 window.pdf = {
-  ...
-  save(): Promise<void>,
-  saveAs(path, opts?): Promise<void>,
-  exportFlattened(path): Promise<void>,
-  exportImages(dir, fmt): Promise<void>,
-
+  // Sidecar (crash recovery)
   pushOps(ops: EditOp[]): Promise<void>,
   getSidecar(): Promise<Sidecar>,
 
-  rotate(pages, deg): Promise<void>,
-  delete(pages): Promise<void>,
-  reorder(order): Promise<void>,
+  // Multi-source page ops
   insertFrom(srcPath, atIndex, srcPages?): Promise<void>,
-  extract(pages, outPath): Promise<void>,
   mergeMany(paths): Promise<DocId>,
 
+  // Annotations / forms (M3 / M4)
+  exportFlattened(path): Promise<void>,
+  exportImages(dir, fmt): Promise<void>,
+
+  // Print (M5)
   listPrinters(): Promise<PrinterInfo[]>,
   print(job): Promise<JobId>,
   jobStatus(id): Promise<JobStatus>,
@@ -294,10 +316,10 @@ window.pdf = {
 
 ## 10. Milestones
 
-1. **M0 — Skeleton** ✅: Electron + Vite + React boilerplate, 1-window-per-doc with blank-window reuse, PDFium-WASM rendering to `<canvas>`, custom toolbar (no browser chrome), AppImage builds.
-2. **M1 — Viewport + nav** ✅: virtualized rendering, thumbnail rail, page sync, zoom modes (fit-width/fit-page/actual/custom), Ctrl+F search with bbox highlights, full keyboard nav, system font mapper.
-3. **M2 — Page ops**: reorder/rotate/delete in thumbnails, sidecar, pdf-lib bake on save. Insert/extract/merge.
-4. **M3 — Annotations**: overlay canvas, shapes, sticky notes, text boxes, undo/redo, write into PDF as standard annotations.
+1. **M0 — Skeleton** ✅: Electron + Vite + React boilerplate, 1-window-per-doc with blank-window reuse, PDFium-WASM rendering to `<canvas>`, custom toolbar (no browser chrome), AppImage builds, drag-drop / double-click open.
+2. **M1 — Viewport + nav** ✅: virtualized rendering, thumbnail rail, page sync, zoom modes, Ctrl+F search with bbox highlights, full keyboard nav, system font mapper.
+3. **M2 — Page ops** ◐: rotate ✅, delete ✅, drag-reorder ✅, multi-select ✅, undo/redo with snapshot stacks ✅, dirty indicator ✅, Save / Save As / Export Selection As ✅ via pdf-lib bake. Insert-from-other-PDF and Merge: deferred (need multi-source `VirtualPage`). Sidecar crash recovery: deferred.
+4. **M3 — Annotations**: overlay canvas, shapes, sticky notes, text boxes, write into PDF as standard annotations. Will reuse the existing undo/redo machinery.
 5. **M4 — Forms**: AcroForm read-back on save; XFA fallback path with banner.
 6. **M5 — Print**: CUPS pipeline, custom dialog, status.
-7. **M6 — Polish + AppImage release**: icons, MIME registration, recent files, drag-drop open, crash recovery, CI release pipeline.
+7. **M6 — Polish + AppImage release**: real icon, MIME registration, recent files, sidecar crash recovery, CI release pipeline.
