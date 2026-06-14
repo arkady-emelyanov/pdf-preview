@@ -55,7 +55,9 @@ beforeEach(() => {
     searchCursor: -1,
     highlightsByPage: new Map(),
     viewportSize: { w: 0, h: 0 },
-    jumpRequest: null
+    jumpRequest: null,
+    tool: 'select',
+    selectedAnnotation: null
   })
 })
 
@@ -301,6 +303,63 @@ describe('store: edit ops', () => {
     expect(setDirty).toHaveBeenLastCalledWith(true)
     api.undo()
     expect(setDirty).toHaveBeenLastCalledWith(false)
+  })
+})
+
+describe('store: annotations', () => {
+  beforeEach(() => useStore.getState().setDoc(doc))
+
+  it('addAnnotation lands on the right page, selects it, marks dirty', async () => {
+    const { makeRect } = await import('../src/shared/annotations')
+    const api = useStore.getState()
+    const r = makeRect({ x: 10, y: 20, w: 30, h: 40 })
+    api.addAnnotation(1, r)
+    const s = useStore.getState()
+    expect(s.pages[0].annotations ?? []).toHaveLength(0)
+    expect(s.pages[1].annotations).toHaveLength(1)
+    expect(s.pages[1].annotations![0].id).toBe(r.id)
+    expect(s.selectedAnnotation).toEqual({ page: 1, id: r.id })
+    expect(setDirty).toHaveBeenLastCalledWith(true)
+  })
+
+  it('updateAnnotation patches geometry; undo restores it', async () => {
+    const { makeRect } = await import('../src/shared/annotations')
+    const api = useStore.getState()
+    const r = makeRect({ x: 0, y: 0, w: 10, h: 10 })
+    api.addAnnotation(0, r)
+    api.updateAnnotation(0, r.id, { x: 100 })
+    expect(useStore.getState().pages[0].annotations![0].x).toBe(100)
+    api.undo()
+    expect(useStore.getState().pages[0].annotations![0].x).toBe(0)
+  })
+
+  it('deleteAnnotation clears selectedAnnotation if it matches', async () => {
+    const { makeRect } = await import('../src/shared/annotations')
+    const api = useStore.getState()
+    const r = makeRect({ x: 0, y: 0, w: 10, h: 10 })
+    api.addAnnotation(0, r)
+    api.deleteAnnotation(0, r.id)
+    const s = useStore.getState()
+    expect(s.pages[0].annotations).toHaveLength(0)
+    expect(s.selectedAnnotation).toBeNull()
+  })
+
+  it('setTool to non-select drops any annotation selection', async () => {
+    const { makeRect } = await import('../src/shared/annotations')
+    const api = useStore.getState()
+    const r = makeRect({ x: 0, y: 0, w: 10, h: 10 })
+    api.addAnnotation(0, r)
+    expect(useStore.getState().selectedAnnotation).not.toBeNull()
+    api.setTool('rect')
+    expect(useStore.getState().selectedAnnotation).toBeNull()
+    expect(useStore.getState().tool).toBe('rect')
+  })
+
+  it('addAnnotation rejects out-of-range page', async () => {
+    const { makeRect } = await import('../src/shared/annotations')
+    const api = useStore.getState()
+    api.addAnnotation(99, makeRect({ x: 0, y: 0, w: 1, h: 1 }))
+    expect(useStore.getState().undoStack).toHaveLength(0)
   })
 })
 

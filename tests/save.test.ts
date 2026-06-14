@@ -6,8 +6,9 @@ import { describe, it, expect, beforeAll } from 'vitest'
 import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { PDFDocument, StandardFonts, degrees } from 'pdf-lib'
+import { PDFArray, PDFDict, PDFDocument, PDFName, StandardFonts, degrees } from 'pdf-lib'
 import { saveDoc } from '../src/main/save'
+import { makeRect } from '../src/shared/annotations'
 
 let workDir: string
 let inputA: string
@@ -131,8 +132,49 @@ describe('saveDoc (multi-source)', () => {
   })
 })
 
-describe('saveDoc cleanup', () => {
+describe('saveDoc (annotations)', () => {
+  it('writes a /Square annotation for a rect on a page', async () => {
+    const out = join(workDir, 'with-annot.pdf')
+    const ann = makeRect({ x: 50, y: 60, w: 120, h: 80, stroke: '#ff0000', strokeWidth: 3 })
+    await saveDoc({ [inputA]: inputA }, out, [
+      { sourceId: inputA, sourceIndex: 0, rotation: 0, annotations: [ann] },
+      { sourceId: inputA, sourceIndex: 1, rotation: 0 }
+    ])
+    const doc = await PDFDocument.load(await readFile(out))
+    expect(doc.getPageCount()).toBe(2)
 
+    const annotsRef = doc.getPage(0).node.Annots()
+    expect(annotsRef).toBeInstanceOf(PDFArray)
+    const annots = annotsRef as PDFArray
+    expect(annots.size()).toBe(1)
+    const dict = annots.lookup(0, PDFDict)
+    expect(dict.lookup(PDFName.of('Subtype'))?.toString()).toBe('/Square')
+    const rect = dict.lookup(PDFName.of('Rect'), PDFArray)
+    expect(rect.size()).toBe(4)
+    // [x1, y1, x2, y2]
+    expect(rect.lookup(0).toString()).toBe('50')
+    expect(rect.lookup(1).toString()).toBe('60')
+    expect(rect.lookup(2).toString()).toBe('170')
+    expect(rect.lookup(3).toString()).toBe('140')
+
+    // Color components serialized as 0..1.
+    const color = dict.lookup(PDFName.of('C'), PDFArray)
+    expect(color.size()).toBe(3)
+    expect(Number(color.lookup(0).toString())).toBeCloseTo(1, 5)
+  })
+
+  it('page without annotations has 0-length or absent /Annots', async () => {
+    const out = join(workDir, 'no-annot.pdf')
+    await saveDoc({ [inputA]: inputA }, out, [
+      { sourceId: inputA, sourceIndex: 0, rotation: 0 }
+    ])
+    const doc = await PDFDocument.load(await readFile(out))
+    const annots = doc.getPage(0).node.Annots()
+    if (annots instanceof PDFArray) expect(annots.size()).toBe(0)
+  })
+})
+
+describe('saveDoc cleanup', () => {
   it('cleanup', async () => {
     await rm(workDir, { recursive: true, force: true })
   })

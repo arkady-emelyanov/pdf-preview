@@ -1,11 +1,16 @@
 import { useEffect, useRef, useState } from 'react'
 import type { PageRect } from '../../shared/ipc'
+import { AnnotationLayer } from './AnnotationLayer'
 
 interface Props {
   sourceId: string
   sourceIndex: number
+  virtualIndex: number
   rotation: number
   scale: number
+  /** Unrotated source page size in PDF points (for annotation coords). */
+  pageWidthPt: number
+  pageHeightPt: number
   expectedWidth: number
   expectedHeight: number
   visible: boolean
@@ -15,8 +20,11 @@ interface Props {
 export function PdfPage({
   sourceId,
   sourceIndex,
+  virtualIndex,
   rotation,
   scale,
+  pageWidthPt,
+  pageHeightPt,
   expectedWidth,
   expectedHeight,
   visible,
@@ -69,6 +77,14 @@ export function PdfPage({
         <div className="pdf-page-placeholder">
           <span>{sourceIndex + 1}</span>
         </div>
+      )}
+      {rotation === 0 && (
+        <AnnotationLayer
+          virtualIndex={virtualIndex}
+          pageWidthPt={pageWidthPt}
+          pageHeightPt={pageHeightPt}
+          scale={scale}
+        />
       )}
       {showHighlights && (
         <div className="highlight-layer">

@@ -126,12 +126,36 @@ this as a known limitation.
   - `Esc` close search
   - `Ctrl+Shift+I` DevTools (hidden), `Ctrl+R` reload (hidden)
 
-### 4.2 Annotations (v1) — *not yet*
-- **Shapes:** rectangle, oval, line, arrow. Stroke color, stroke width, fill (opt), opacity. Drag to draw, resize handles, rotate handle.
-- **Sticky notes:** anchored to page coordinate. Click to expand; collapsed icon by default. Author name from `git config user.name` or OS user.
-- **Text boxes:** free-floating text, font (3–4 bundled), size, color.
-- All annotations are selectable, moveable, deletable, undo/redo (Ctrl+Z/Y).
-- Tool palette in toolbar; Esc returns to hand/select tool.
+### 4.2 Annotations (v1) — *M3 in progress*
+
+Storage: annotations are attached to a `VirtualPage` via an optional
+`annotations: Annotation[]` array. Geometry is stored in PDF page points
+(origin bottom-left) so it survives zoom changes and re-opens at the same
+position. Because annotations live inside the edit-graph snapshot, they
+participate in the existing undo/redo stack and dirty-flag plumbing without
+new machinery.
+
+Rendering: each `<PdfPage>` overlays a transparent `<AnnotationLayer>` canvas
+sized to match the rendered page. The layer redraws on annotation/selection
+changes, handles pointer input for the active tool, and shows a dashed blue
+marquee around the selected annotation. v1 punt: drawing is disabled on a
+virtual page with non-zero rotation delta (same compromise as search
+highlights), since reprojection through the rotation isn't worth implementing
+twice.
+
+- **Shapes:** rectangle ✅; oval, line, arrow planned. Stroke color, stroke
+  width, fill (opt), opacity. Drag to draw. (Resize / rotate handles planned
+  in the next slice.)
+- **Sticky notes**: planned. Anchored to page coordinate. Click to expand;
+  collapsed icon by default. Author from `git config user.name` or OS user.
+- **Text boxes**: planned. Free-floating text, font (3–4 bundled), size, color.
+- All annotations are selectable, moveable, deletable, undo/redo ✅
+  (Ctrl+Z/Y). Select tool: click hit-tests in PDF coords, drag moves.
+- Tool palette in toolbar ✅ (Select / Rect for now). `Esc` returns to select
+  tool and clears any annotation selection; `R` activates Rect, `V` Select.
+- Save bakes rect annotations as standard `/Square` annotation dicts via
+  pdf-lib's low-level `context.obj` API (Subtype, Rect, C, CA, BS, M, NM).
+  Round-trip tests in `tests/save.test.ts` confirm the dict structure.
 
 ### 4.3 Forms — *not yet*
 - **AcroForm:** render via PDFium's `renderFormFields` flag; capture filled state on save by re-reading the PDF and copying field values via pdf-lib. Option to flatten on export.
@@ -329,7 +353,7 @@ window.pdf = {
 1. **M0 — Skeleton** ✅: Electron + Vite + React boilerplate, 1-window-per-doc with blank-window reuse, PDFium-WASM rendering to `<canvas>`, custom toolbar (no browser chrome), AppImage builds, drag-drop / double-click open.
 2. **M1 — Viewport + nav** ✅: virtualized rendering, thumbnail rail, page sync, zoom modes, Ctrl+F search with bbox highlights, full keyboard nav, system font mapper.
 3. **M2 — Page ops** ✅: rotate ✅, delete ✅, drag-reorder ✅, multi-select ✅, undo/redo with snapshot stacks ✅, dirty indicator ✅, Save / Save As / Export Selection As ✅ via pdf-lib bake, Insert-from-other-PDF ✅, Merge ✅ (both via multi-source `VirtualPage {sourceId, ...}` and a secondary-source registry in main). Sidecar crash recovery: deferred to M6.
-4. **M3 — Annotations**: overlay canvas, shapes, sticky notes, text boxes, write into PDF as standard annotations. Will reuse the existing undo/redo machinery.
+4. **M3 — Annotations** ◐: overlay canvas ✅, rectangle shape ✅ (draw + select + move + delete + undo/redo + `/Square` write-back). Remaining: oval / line / arrow shapes, resize/rotate handles, color picker, sticky notes, text boxes.
 5. **M4 — Forms**: AcroForm read-back on save; XFA fallback path with banner.
 6. **M5 — Print**: CUPS pipeline, custom dialog, status.
 7. **M6 — Polish + AppImage release**: real icon, MIME registration, recent files, sidecar crash recovery, CI release pipeline.

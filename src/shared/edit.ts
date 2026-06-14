@@ -1,4 +1,5 @@
 import type { PageSize } from './ipc'
+import { annotationsEqual, type Annotation } from './annotations'
 
 export type Rotation = 0 | 90 | 180 | 270
 
@@ -9,6 +10,8 @@ export interface VirtualPage {
   sourceIndex: number
   /** Delta rotation applied on top of the source's own /Rotate. */
   rotation: Rotation
+  /** Annotations placed on this virtual page (PDF page coordinates). */
+  annotations?: Annotation[]
 }
 
 export function normalizeRotation(deg: number): Rotation {
@@ -41,6 +44,7 @@ export function pagesEqual(a: VirtualPage[], b: VirtualPage[]): boolean {
       a[i].rotation !== b[i].rotation
     )
       return false
+    if (!annotationsEqual(a[i].annotations, b[i].annotations)) return false
   }
   return true
 }

@@ -1,6 +1,16 @@
 import { readFile, writeFile } from 'node:fs/promises'
-import { PDFDocument, degrees } from 'pdf-lib'
+import {
+  PDFArray,
+  PDFDocument,
+  PDFHexString,
+  PDFName,
+  PDFNumber,
+  PDFString,
+  degrees,
+  type PDFPage
+} from 'pdf-lib'
 import type { VirtualPage } from '../shared/edit'
+import { parseHexColor, type Annotation } from '../shared/annotations'
 
 /**
  * Bake a (possibly multi-source) virtual-page edit graph onto disk via pdf-lib.
@@ -59,10 +69,55 @@ export async function saveDoc(
       const absolute = (srcRot + batch[k].rotation) % 360
       page.setRotation(degrees(absolute))
       out.addPage(page)
+      const anns = batch[k].annotations
+      if (anns && anns.length > 0) writeAnnotations(page, anns)
     }
     i = j
   }
 
   const outBytes = await out.save({ useObjectStreams: true })
   await writeFile(destPath, outBytes)
+}
+
+/** Append our annotations to a copied output page as standard PDF annot dicts. */
+function writeAnnotations(page: PDFPage, anns: Annotation[]): void {
+  const ctx = page.doc.context
+  // Existing /Annots, if any — preserve them.
+  const node = page.node
+  const existing = node.Annots()
+  const arr = existing instanceof PDFArray ? existing : ctx.obj([])
+
+  for (const a of anns) {
+    if (a.kind !== 'rect') continue
+    const x1 = a.x
+    const y1 = a.y
+    const x2 = a.x + a.w
+    const y2 = a.y + a.h
+    const rgb = parseHexColor(a.stroke) ?? [0.8, 0.2, 0.2]
+    const dict = ctx.obj({
+      Type: 'Annot',
+      Subtype: 'Square',
+      Rect: [x1, y1, x2, y2],
+      C: rgb,
+      CA: a.opacity,
+      F: 4, // Print flag
+      BS: ctx.obj({ Type: 'Border', W: a.strokeWidth, S: PDFName.of('S') }),
+      M: PDFString.of(toPdfDate(new Date(a.modified))),
+      T: a.author ? PDFHexString.fromText(a.author) : undefined,
+      NM: PDFString.of(a.id)
+    })
+    // ctx.obj quirk: undefined entries are still emitted; drop them.
+    if (!a.author) dict.delete(PDFName.of('T'))
+    // pdf-lib emits raw numbers as PDFNumber; force /CA in 0..1 form.
+    dict.set(PDFName.of('CA'), PDFNumber.of(a.opacity))
+    arr.push(dict)
+  }
+  node.set(PDFName.of('Annots'), arr)
+}
+
+function toPdfDate(d: Date): string {
+  const pad = (n: number, w = 2): string => String(n).padStart(w, '0')
+  return `D:${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(d.getUTCDate())}${pad(
+    d.getUTCHours()
+  )}${pad(d.getUTCMinutes())}${pad(d.getUTCSeconds())}Z`
 }

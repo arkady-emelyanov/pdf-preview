@@ -117,6 +117,7 @@ export function Viewport(): JSX.Element {
       <div className="pages-spacer" style={{ height: layout.totalHeight }}>
         {pages.map((vp, i) => {
           const sz = layout.sizes[i]
+          const src = sourceSize(vp.sourceId, vp.sourceIndex)
           return (
             <div
               key={`${vp.sourceId}:${vp.sourceIndex}:${i}`}
@@ -133,8 +134,11 @@ export function Viewport(): JSX.Element {
               <PdfPage
                 sourceId={vp.sourceId}
                 sourceIndex={vp.sourceIndex}
+                virtualIndex={i}
                 rotation={vp.rotation}
                 scale={scale}
+                pageWidthPt={src.width}
+                pageHeightPt={src.height}
                 expectedWidth={sz.w}
                 expectedHeight={sz.h}
                 visible={visibleSet.has(i)}

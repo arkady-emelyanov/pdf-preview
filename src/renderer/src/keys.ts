@@ -85,7 +85,21 @@ export function useKeyboardShortcuts(): void {
 
       if (e.key === 'Delete' || e.key === 'Backspace') {
         e.preventDefault()
-        s.deleteSelection()
+        if (s.selectedAnnotation) {
+          s.deleteAnnotation(s.selectedAnnotation.page, s.selectedAnnotation.id)
+        } else {
+          s.deleteSelection()
+        }
+        return
+      }
+      if (e.key.toLowerCase() === 'r' && !mod) {
+        e.preventDefault()
+        s.setTool('rect')
+        return
+      }
+      if (e.key.toLowerCase() === 'v' && !mod) {
+        e.preventDefault()
+        s.setTool('select')
         return
       }
       if (e.key === 'ArrowDown' || e.key === 'PageDown' || e.key === ' ') {
@@ -102,6 +116,8 @@ export function useKeyboardShortcuts(): void {
         s.requestJump(s.pages.length - 1)
       } else if (e.key === 'Escape') {
         if (s.searchOpen) s.closeSearch()
+        if (s.tool !== 'select') s.setTool('select')
+        if (s.selectedAnnotation) s.setSelectedAnnotation(null)
         s.clearSelection()
       }
     }

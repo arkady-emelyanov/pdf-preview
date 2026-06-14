@@ -30,6 +30,8 @@ export function Toolbar(): JSX.Element {
   const insertPages = useStore((s) => s.insertPages)
   const registerSource = useStore((s) => s.registerSource)
   const sourcePaths = useStore((s) => s.sourcePaths)
+  const tool = useStore((s) => s.tool)
+  const setTool = useStore((s) => s.setTool)
   const markSaved = useStore((s) => s.markSaved)
   const [busy, setBusy] = useState(false)
 
@@ -163,6 +165,21 @@ export function Toolbar(): JSX.Element {
           </button>
           <button onClick={doInsert} title="Insert pages from PDF…">
             ＋
+          </button>
+          <div className="divider" />
+          <button
+            onClick={() => setTool('select')}
+            aria-pressed={tool === 'select'}
+            title="Select tool (Esc)"
+          >
+            ↖
+          </button>
+          <button
+            onClick={() => setTool('rect')}
+            aria-pressed={tool === 'rect'}
+            title="Rectangle annotation (R)"
+          >
+            ▭
           </button>
           <div className="divider" />
           <button onClick={doSave} disabled={!dirty || busy} title="Save (Ctrl+S)">

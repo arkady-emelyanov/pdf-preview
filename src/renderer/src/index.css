@@ -157,6 +157,13 @@ html, body, #root {
   inset: 0;
   pointer-events: none;
 }
+.annotation-layer {
+  z-index: 2;
+}
+.toolbar button[aria-pressed='true'] {
+  background: #345;
+  color: #cef;
+}
 .highlight {
   position: absolute;
   background: rgba(255, 230, 0, 0.4);

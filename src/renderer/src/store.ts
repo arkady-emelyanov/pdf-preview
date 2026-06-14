@@ -12,6 +12,14 @@ import {
   type Rotation,
   type VirtualPage
 } from '../../shared/edit'
+import {
+  addAnnotation as addAnnFn,
+  deleteAnnotation as delAnnFn,
+  updateAnnotation as updAnnFn,
+  type Annotation
+} from '../../shared/annotations'
+
+export type Tool = 'select' | 'rect'
 
 export type ZoomMode = 'fit-width' | 'fit-page' | 'actual' | 'custom'
 
@@ -48,6 +56,10 @@ interface State {
   viewportSize: { w: number; h: number }
   jumpRequest: number | null
 
+  // Annotations
+  tool: Tool
+  selectedAnnotation: { page: number; id: string } | null
+
   // View setters
   setDoc: (d: DocInfo | null) => void
   registerSource: (s: SourceInfo) => void
@@ -79,6 +91,13 @@ interface State {
   deleteSelection: () => void
   movePages: (indices: number[], target: number) => void
   insertPages: (inserts: VirtualPage[], target: number) => void
+
+  // Annotations
+  setTool: (t: Tool) => void
+  addAnnotation: (page: number, a: Annotation) => void
+  updateAnnotation: (page: number, id: string, patch: Partial<Annotation>) => void
+  deleteAnnotation: (page: number, id: string) => void
+  setSelectedAnnotation: (sel: { page: number; id: string } | null) => void
 
   // Undo/redo
   undo: () => void
@@ -117,6 +136,9 @@ export const useStore = create<State>((set, get) => ({
   viewportSize: { w: 0, h: 0 },
   jumpRequest: null,
 
+  tool: 'select',
+  selectedAnnotation: null,
+
   setDoc: (d) => {
     const pages = d ? identityPages(d.primary.sourceId, d.primary.pageCount) : []
     const sources: Record<string, SourceInfo> = d ? { [d.primary.sourceId]: d.primary } : {}
@@ -132,7 +154,9 @@ export const useStore = create<State>((set, get) => ({
       searchHits: [],
       searchQuery: '',
       searchCursor: -1,
-      highlightsByPage: new Map()
+      highlightsByPage: new Map(),
+      tool: 'select',
+      selectedAnnotation: null
     })
     window.pdf.setDirty(false)
   },
@@ -251,13 +275,61 @@ export const useStore = create<State>((set, get) => ({
     window.pdf.setDirty(isDirty(next, s.savedPages))
   },
 
+  setTool: (t) =>
+    set((st) => ({
+      tool: t,
+      selectedAnnotation: t === 'select' ? st.selectedAnnotation : null
+    })),
+
+  addAnnotation: (page, a) => {
+    const s = get()
+    if (page < 0 || page >= s.pages.length) return
+    const next = s.pages.map((vp, i) =>
+      i === page ? { ...vp, annotations: addAnnFn(vp.annotations, a) } : vp
+    )
+    const undoStack = pushUndo(s.undoStack, s.pages)
+    set({
+      pages: next,
+      undoStack,
+      redoStack: [],
+      selectedAnnotation: { page, id: a.id }
+    })
+    window.pdf.setDirty(isDirty(next, s.savedPages))
+  },
+
+  updateAnnotation: (page, id, patch) => {
+    const s = get()
+    if (page < 0 || page >= s.pages.length) return
+    const next = s.pages.map((vp, i) =>
+      i === page ? { ...vp, annotations: updAnnFn(vp.annotations, id, patch) } : vp
+    )
+    const undoStack = pushUndo(s.undoStack, s.pages)
+    set({ pages: next, undoStack, redoStack: [] })
+    window.pdf.setDirty(isDirty(next, s.savedPages))
+  },
+
+  deleteAnnotation: (page, id) => {
+    const s = get()
+    if (page < 0 || page >= s.pages.length) return
+    const next = s.pages.map((vp, i) =>
+      i === page ? { ...vp, annotations: delAnnFn(vp.annotations, id) } : vp
+    )
+    const undoStack = pushUndo(s.undoStack, s.pages)
+    const sel =
+      s.selectedAnnotation && s.selectedAnnotation.id === id ? null : s.selectedAnnotation
+    set({ pages: next, undoStack, redoStack: [], selectedAnnotation: sel })
+    window.pdf.setDirty(isDirty(next, s.savedPages))
+  },
+
+  setSelectedAnnotation: (sel) => set({ selectedAnnotation: sel }),
+
   undo: () => {
     const s = get()
     if (s.undoStack.length === 0) return
     const prev = s.undoStack[s.undoStack.length - 1]
     const undoStack = s.undoStack.slice(0, -1)
     const redoStack = [...s.redoStack, s.pages]
-    set({ pages: prev, undoStack, redoStack, selection: new Set() })
+    set({ pages: prev, undoStack, redoStack, selection: new Set(), selectedAnnotation: null })
     window.pdf.setDirty(isDirty(prev, s.savedPages))
   },
 
@@ -267,7 +339,7 @@ export const useStore = create<State>((set, get) => ({
     const next = s.redoStack[s.redoStack.length - 1]
     const redoStack = s.redoStack.slice(0, -1)
     const undoStack = pushUndo(s.undoStack, s.pages)
-    set({ pages: next, undoStack, redoStack, selection: new Set() })
+    set({ pages: next, undoStack, redoStack, selection: new Set(), selectedAnnotation: null })
     window.pdf.setDirty(isDirty(next, s.savedPages))
   },
 
