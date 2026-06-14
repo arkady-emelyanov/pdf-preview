@@ -355,6 +355,33 @@ describe('store: annotations', () => {
     expect(useStore.getState().tool).toBe('rect')
   })
 
+  it('liveUpdateAnnotation does not touch the undo stack', async () => {
+    const { makeRect } = await import('../src/shared/annotations')
+    const api = useStore.getState()
+    const r = makeRect({ x: 0, y: 0, w: 10, h: 10 })
+    api.addAnnotation(0, r) // push #1
+    const before = useStore.getState().undoStack.length
+    api.liveUpdateAnnotation(0, r.id, { x: 5 })
+    api.liveUpdateAnnotation(0, r.id, { x: 10 })
+    api.liveUpdateAnnotation(0, r.id, { x: 20 })
+    expect(useStore.getState().undoStack.length).toBe(before)
+    expect(useStore.getState().pages[0].annotations![0].x).toBe(20)
+  })
+
+  it('beginLiveEdit + drag-style updates: undo restores pre-drag state', async () => {
+    const { makeRect } = await import('../src/shared/annotations')
+    const api = useStore.getState()
+    const r = makeRect({ x: 50, y: 50, w: 10, h: 10 })
+    api.addAnnotation(0, r)
+    api.beginLiveEdit()
+    api.liveUpdateAnnotation(0, r.id, { x: 100 })
+    api.liveUpdateAnnotation(0, r.id, { x: 200 })
+    expect(useStore.getState().pages[0].annotations![0].x).toBe(200)
+    api.undo()
+    // beginLiveEdit snapshotted the state after add — so undo restores x=50
+    expect(useStore.getState().pages[0].annotations![0].x).toBe(50)
+  })
+
   it('addAnnotation rejects out-of-range page', async () => {
     const { makeRect } = await import('../src/shared/annotations')
     const api = useStore.getState()

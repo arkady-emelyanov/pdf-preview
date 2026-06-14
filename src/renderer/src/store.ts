@@ -98,6 +98,10 @@ interface State {
   updateAnnotation: (page: number, id: string, patch: Partial<Annotation>) => void
   deleteAnnotation: (page: number, id: string) => void
   setSelectedAnnotation: (sel: { page: number; id: string } | null) => void
+  /** Snapshot current pages onto the undo stack — call once at drag start. */
+  beginLiveEdit: () => void
+  /** Patch an annotation without touching the undo stack — call during drag. */
+  liveUpdateAnnotation: (page: number, id: string, patch: Partial<Annotation>) => void
 
   // Undo/redo
   undo: () => void
@@ -322,6 +326,22 @@ export const useStore = create<State>((set, get) => ({
   },
 
   setSelectedAnnotation: (sel) => set({ selectedAnnotation: sel }),
+
+  beginLiveEdit: () => {
+    const s = get()
+    const undoStack = pushUndo(s.undoStack, s.pages)
+    set({ undoStack, redoStack: [] })
+  },
+
+  liveUpdateAnnotation: (page, id, patch) => {
+    const s = get()
+    if (page < 0 || page >= s.pages.length) return
+    const next = s.pages.map((vp, i) =>
+      i === page ? { ...vp, annotations: updAnnFn(vp.annotations, id, patch) } : vp
+    )
+    set({ pages: next })
+    window.pdf.setDirty(isDirty(next, s.savedPages))
+  },
 
   undo: () => {
     const s = get()

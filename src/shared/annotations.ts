@@ -128,6 +128,69 @@ export function rectToCanvas(
   return { x: a.x * scale, y: top * scale, w: a.w * scale, h: a.h * scale }
 }
 
+export type HandlePos = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w'
+
+export const HANDLES: HandlePos[] = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w']
+
+/**
+ * Recompute a rect after dragging one handle by (dx, dy) in PDF page points.
+ * If the user drags a side past the opposite side, the rect flips cleanly.
+ */
+export function resizeRect(
+  orig: { x: number; y: number; w: number; h: number },
+  pos: HandlePos,
+  dx: number,
+  dy: number
+): { x: number; y: number; w: number; h: number } {
+  let x1 = orig.x
+  let y1 = orig.y
+  let x2 = orig.x + orig.w
+  let y2 = orig.y + orig.h
+  if (pos.includes('w')) x1 += dx
+  if (pos.includes('e')) x2 += dx
+  if (pos.includes('n')) y2 += dy
+  if (pos.includes('s')) y1 += dy
+  return {
+    x: Math.min(x1, x2),
+    y: Math.min(y1, y2),
+    w: Math.abs(x2 - x1),
+    h: Math.abs(y2 - y1)
+  }
+}
+
+/** Canvas-space center of a handle for a given rect annotation. */
+export function handleCenter(
+  pos: HandlePos,
+  a: { x: number; y: number; w: number; h: number },
+  pageHeightPt: number,
+  scale: number
+): { cx: number; cy: number } {
+  const left = a.x * scale
+  const right = (a.x + a.w) * scale
+  const top = (pageHeightPt - (a.y + a.h)) * scale
+  const bot = (pageHeightPt - a.y) * scale
+  const mx = (left + right) / 2
+  const my = (top + bot) / 2
+  switch (pos) {
+    case 'nw':
+      return { cx: left, cy: top }
+    case 'n':
+      return { cx: mx, cy: top }
+    case 'ne':
+      return { cx: right, cy: top }
+    case 'e':
+      return { cx: right, cy: my }
+    case 'se':
+      return { cx: right, cy: bot }
+    case 's':
+      return { cx: mx, cy: bot }
+    case 'sw':
+      return { cx: left, cy: bot }
+    case 'w':
+      return { cx: left, cy: my }
+  }
+}
+
 export function hitTestRect(
   a: RectAnnotation,
   ptX: number,

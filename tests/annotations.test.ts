@@ -4,11 +4,13 @@ import {
   annotationsEqual,
   canvasToPoint,
   deleteAnnotation,
+  handleCenter,
   hitTestRect,
   makeRect,
   parseHexColor,
   pointToCanvas,
   rectToCanvas,
+  resizeRect,
   updateAnnotation,
   type Annotation
 } from '../src/shared/annotations'
@@ -101,6 +103,60 @@ describe('hitTestRect', () => {
   it('tolerance grows the hit area', () => {
     expect(hitTestRect(a, 5, 5, 0)).toBe(false)
     expect(hitTestRect(a, 8, 8, 4)).toBe(true)
+  })
+})
+
+describe('resizeRect', () => {
+  const orig = { x: 100, y: 100, w: 80, h: 60 }
+
+  it('se handle extends both width and height', () => {
+    const r = resizeRect(orig, 'se', 20, -10) // PDF-y: down in screen = -dy
+    expect(r.x).toBe(100)
+    // 'se' moves the south (bottom) edge: y1 += dy → y goes down
+    expect(r.y).toBe(90)
+    expect(r.w).toBe(100)
+    // top stays at 160; bottom moves to 90 → h = 70
+    expect(r.h).toBe(70)
+  })
+
+  it('nw handle moves the top-left corner', () => {
+    const r = resizeRect(orig, 'nw', -10, 20) // drag up-left
+    expect(r.x).toBe(90)
+    expect(r.y).toBe(100)
+    expect(r.w).toBe(90)
+    expect(r.h).toBe(80)
+  })
+
+  it('n only changes height; x/w/y unchanged', () => {
+    const r = resizeRect(orig, 'n', 999, 25)
+    expect(r.x).toBe(100)
+    expect(r.w).toBe(80)
+    expect(r.y).toBe(100)
+    expect(r.h).toBe(85)
+  })
+
+  it('flips cleanly when dragged past the opposite edge', () => {
+    const r = resizeRect(orig, 'e', -200, 0)
+    // x2 = 180 - 200 = -20; new x = min(100, -20) = -20, w = 120
+    expect(r.x).toBe(-20)
+    expect(r.w).toBe(120)
+  })
+})
+
+describe('handleCenter', () => {
+  const a = { x: 100, y: 100, w: 80, h: 60 }
+  // pageHeight = 1000, scale = 1 → top of rect in canvas = 1000 - 160 = 840
+  it('nw is at the canvas top-left corner of the rect', () => {
+    const h = handleCenter('nw', a, 1000, 1)
+    expect(h).toEqual({ cx: 100, cy: 840 })
+  })
+  it('se is at the canvas bottom-right of the rect', () => {
+    const h = handleCenter('se', a, 1000, 1)
+    expect(h).toEqual({ cx: 180, cy: 900 })
+  })
+  it('n midpoint of the top edge', () => {
+    const h = handleCenter('n', a, 1000, 1)
+    expect(h).toEqual({ cx: 140, cy: 840 })
   })
 })
 

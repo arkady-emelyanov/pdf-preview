@@ -144,13 +144,17 @@ highlights), since reprojection through the rotation isn't worth implementing
 twice.
 
 - **Shapes:** rectangle ✅; oval, line, arrow planned. Stroke color, stroke
-  width, fill (opt), opacity. Drag to draw. (Resize / rotate handles planned
-  in the next slice.)
+  width, fill (opt), opacity. Drag to draw. Resize ✅ — 8 corner+edge handles
+  on the selected rect with platform-appropriate cursors; drag-past-opposite
+  flips cleanly. Rotate handle planned.
 - **Sticky notes**: planned. Anchored to page coordinate. Click to expand;
   collapsed icon by default. Author from `git config user.name` or OS user.
 - **Text boxes**: planned. Free-floating text, font (3–4 bundled), size, color.
 - All annotations are selectable, moveable, deletable, undo/redo ✅
-  (Ctrl+Z/Y). Select tool: click hit-tests in PDF coords, drag moves.
+  (Ctrl+Z/Y). Select tool: click hit-tests in PDF coords, drag moves, drag a
+  resize handle scales. Live drags use `beginLiveEdit` (one undo snapshot at
+  drag start) + `liveUpdateAnnotation` (no undo push per frame), so one drag
+  produces one undo entry rather than flooding the cap.
 - Tool palette in toolbar ✅ (Select / Rect for now). `Esc` returns to select
   tool and clears any annotation selection; `R` activates Rect, `V` Select.
 - Save bakes rect annotations as standard `/Square` annotation dicts via
@@ -353,7 +357,7 @@ window.pdf = {
 1. **M0 — Skeleton** ✅: Electron + Vite + React boilerplate, 1-window-per-doc with blank-window reuse, PDFium-WASM rendering to `<canvas>`, custom toolbar (no browser chrome), AppImage builds, drag-drop / double-click open.
 2. **M1 — Viewport + nav** ✅: virtualized rendering, thumbnail rail, page sync, zoom modes, Ctrl+F search with bbox highlights, full keyboard nav, system font mapper.
 3. **M2 — Page ops** ✅: rotate ✅, delete ✅, drag-reorder ✅, multi-select ✅, undo/redo with snapshot stacks ✅, dirty indicator ✅, Save / Save As / Export Selection As ✅ via pdf-lib bake, Insert-from-other-PDF ✅, Merge ✅ (both via multi-source `VirtualPage {sourceId, ...}` and a secondary-source registry in main). Sidecar crash recovery: deferred to M6.
-4. **M3 — Annotations** ◐: overlay canvas ✅, rectangle shape ✅ (draw + select + move + delete + undo/redo + `/Square` write-back). Remaining: oval / line / arrow shapes, resize/rotate handles, color picker, sticky notes, text boxes.
+4. **M3 — Annotations** ◐: overlay canvas ✅, rectangle shape ✅ (draw + select + move + resize ✅ + delete + undo/redo + `/Square` write-back). Remaining: oval / line / arrow shapes, rotate handle, color/stroke picker UI, sticky notes, text boxes.
 5. **M4 — Forms**: AcroForm read-back on save; XFA fallback path with banner.
 6. **M5 — Print**: CUPS pipeline, custom dialog, status.
 7. **M6 — Polish + AppImage release**: real icon, MIME registration, recent files, sidecar crash recovery, CI release pipeline.
