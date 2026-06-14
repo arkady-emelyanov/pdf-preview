@@ -16,7 +16,7 @@ import { promisify } from 'node:util'
 
 const execFileP = promisify(execFile)
 
-interface FontEntry {
+export interface FontEntry {
   file: string
   family: string
   style: string
@@ -36,14 +36,15 @@ interface LoadedFont {
 }
 
 let fontIndex: FontEntry[] = []
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 let installed = false
 
 /** Lowercase + collapse whitespace for fuzzy family-name matching. */
-function key(s: string): string {
+export function key(s: string): string {
   return s.toLowerCase().replace(/\s+/g, ' ').trim()
 }
 
-function classify(family: string, style: string): {
+export function classify(family: string, style: string): {
   weight: number
   italic: boolean
   monospace: boolean
@@ -273,7 +274,7 @@ function findFamily(familyKey: string, weight: number, italic: boolean): FontEnt
   return best
 }
 
-function resolveFontByName(
+export function resolveFontByName(
   requested: string,
   weight: number,
   italic: boolean
@@ -321,7 +322,7 @@ function resolveFontByName(
   return null
 }
 
-function resolveByCharset(
+export function resolveByCharset(
   charset: number,
   weight: number,
   italic: boolean,
@@ -335,7 +336,7 @@ function resolveByCharset(
   return null
 }
 
-function resolveDefault(monospace: boolean, serif: boolean): FontEntry | null {
+export function resolveDefault(monospace: boolean, serif: boolean): FontEntry | null {
   const targets = monospace
     ? ['nimbus mono ps', 'dejavu sans mono', 'liberation mono']
     : serif
@@ -526,20 +527,30 @@ export function installFontMapper(module: any): void {
  * Read a single table from a TTF/OTF font buffer by 4-char tag (passed as u32).
  * Returns the table bytes, or null if not found / not a sfnt.
  */
-function readTtfTable(buf: Uint8Array, tag: number): Uint8Array | null {
+export function readTtfTable(buf: Uint8Array, tag: number): Uint8Array | null {
   if (buf.length < 12) return null
   const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength)
-  // sfnt version: 0x00010000 (TTF) or 'OTTO' / 'true' / 'typ1' / 'ttcf'
   const sfnt = dv.getUint32(0, false)
-  let tableOffset = 12
-  if (sfnt === 0x74746366 /* 'ttcf' */) {
-    // TTC — use first font
+  const isTtf = sfnt === 0x00010000
+  const isOtf = sfnt === 0x4f54544f // 'OTTO'
+  const isTrue = sfnt === 0x74727565 // 'true'
+  const isTyp1 = sfnt === 0x74797031 // 'typ1'
+  const isTtc = sfnt === 0x74746366 // 'ttcf'
+  if (!isTtf && !isOtf && !isTrue && !isTyp1 && !isTtc) return null
+
+  if (isTtc) {
+    // TTC — pick the first contained font and recurse.
+    if (buf.length < 16) return null
     const numFonts = dv.getUint32(8, false)
     if (numFonts === 0) return null
     const fontOffset = dv.getUint32(12, false)
+    if (fontOffset >= buf.length) return null
     return readTtfTable(buf.subarray(fontOffset), tag)
   }
+
   const numTables = dv.getUint16(4, false)
+  const tableOffset = 12
+  if (buf.length < tableOffset + numTables * 16) return null
   for (let i = 0; i < numTables; i++) {
     const off = tableOffset + i * 16
     const t = dv.getUint32(off, false)
@@ -551,6 +562,11 @@ function readTtfTable(buf: Uint8Array, tag: number): Uint8Array | null {
     }
   }
   return null
+}
+
+/** Test seam: replace the in-memory font index. */
+export function __setFontIndexForTest(entries: FontEntry[]): void {
+  fontIndex = entries
 }
 
 /** Diagnostic: how many fonts we found and a few examples. */

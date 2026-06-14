@@ -12,7 +12,10 @@
     "build:appimage": "electron-vite build && electron-builder --linux AppImage",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json",
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json",
-    "typecheck": "npm run typecheck:node && npm run typecheck:web"
+    "typecheck": "npm run typecheck:node && npm run typecheck:web",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:ui": "vitest --ui"
   },
   "dependencies": {
     "@embedpdf/pdfium": "^2.14.4",
@@ -26,10 +29,13 @@
     "@types/react": "^18.3.11",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.2",
+    "@vitest/ui": "^4.1.8",
     "electron": "^32.1.2",
     "electron-builder": "^25.0.5",
     "electron-vite": "^2.3.0",
+    "happy-dom": "^20.10.3",
     "typescript": "^5.6.2",
-    "vite": "^5.4.8"
+    "vite": "^5.4.8",
+    "vitest": "^4.1.8"
   }
 }
