@@ -204,6 +204,20 @@ html, body, #root {
 .thumb.selected { background: rgba(74, 162, 102, 0.18); }
 .thumb.selected canvas { outline: 2px solid #4a6; }
 
+.thumb.drop-above::before,
+.thumb.drop-below::after {
+  content: '';
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  height: 3px;
+  background: #4a6;
+  border-radius: 2px;
+}
+.thumb.drop-above::before { top: -2px; }
+.thumb.drop-below::after  { bottom: -2px; }
+.thumb { position: relative; }
+
 .viewport-scroll {
   flex: 1;
   overflow: auto;

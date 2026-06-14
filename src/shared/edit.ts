@@ -51,3 +51,58 @@ export function applyDelete(pages: VirtualPage[], indices: number[]): VirtualPag
   const set = new Set(indices)
   return pages.filter((_, i) => !set.has(i))
 }
+
+/**
+ * Move the listed page indices to insertion point `target`.
+ *
+ * `target` is a position in the ORIGINAL array (0 = before first page,
+ * pages.length = after last). The moved pages end up consecutive at the
+ * adjusted target, in the order they originally appeared.
+ */
+export function applyMove(
+  pages: VirtualPage[],
+  indices: number[],
+  target: number
+): VirtualPage[] {
+  const sorted = [...indices].sort((a, b) => a - b)
+  if (sorted.length === 0) return pages
+  if (sorted.some((i) => i < 0 || i >= pages.length)) return pages
+  if (target < 0 || target > pages.length) return pages
+
+  // Pull the moved pages out, preserving order.
+  const moved = sorted.map((i) => pages[i])
+  const set = new Set(sorted)
+  const remaining = pages.filter((_, i) => !set.has(i))
+
+  // Adjust target by removed-count to the left of the original target.
+  const adjustedTarget = target - sorted.filter((i) => i < target).length
+
+  return [...remaining.slice(0, adjustedTarget), ...moved, ...remaining.slice(adjustedTarget)]
+}
+
+/**
+ * Map old page indices to where they end up after applyMove, so that callers
+ * (selection, currentPage) can follow the move.
+ */
+export function moveIndexMap(
+  pageCount: number,
+  indices: number[],
+  target: number
+): number[] {
+  const sorted = [...indices].sort((a, b) => a - b)
+  const set = new Set(sorted)
+  const adjustedTarget = target - sorted.filter((i) => i < target).length
+  const out = new Array<number>(pageCount).fill(-1)
+  let cursor = 0
+  // Static-position items
+  for (let i = 0; i < pageCount; i++) {
+    if (set.has(i)) continue
+    if (cursor === adjustedTarget) cursor += sorted.length
+    out[i] = cursor++
+  }
+  // Moved items land starting at adjustedTarget
+  for (let m = 0; m < sorted.length; m++) {
+    out[sorted[m]] = adjustedTarget + m
+  }
+  return out
+}

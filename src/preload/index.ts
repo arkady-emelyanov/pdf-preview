@@ -20,6 +20,12 @@ const api = {
     pages: VirtualPage[]
   ): Promise<{ ok: true } | { ok: false; error: string }> =>
     ipcRenderer.invoke('pdf:save', id, pages),
+  saveAs: (
+    id: string,
+    pages: VirtualPage[],
+    defaultName: string
+  ): Promise<{ ok: true; path: string } | { ok: false; error?: string }> =>
+    ipcRenderer.invoke('pdf:saveAs', id, pages, defaultName),
   setDirty: (dirty: boolean): void => ipcRenderer.send('pdf:setDirty', dirty),
   close: (id: string): void => ipcRenderer.send('pdf:close', id),
   showOpenDialog: (): void => ipcRenderer.send('pdf:showOpenDialog'),
@@ -29,6 +35,12 @@ const api = {
     const handler = (): void => cb()
     ipcRenderer.on('pdf:docAssigned', handler)
     return () => ipcRenderer.off('pdf:docAssigned', handler)
+  },
+  onMenu: (channel: 'save' | 'saveAs' | 'extractSelection', cb: () => void): (() => void) => {
+    const ch = `menu:${channel}`
+    const handler = (): void => cb()
+    ipcRenderer.on(ch, handler)
+    return () => ipcRenderer.off(ch, handler)
   }
 }
 

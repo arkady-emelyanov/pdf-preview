@@ -2,8 +2,10 @@ import { create } from 'zustand'
 import type { DocInfo, PageRect } from '../../shared/ipc'
 import {
   applyDelete,
+  applyMove,
   applyRotate,
   identityPages,
+  moveIndexMap,
   pagesEqual,
   rotatedSize,
   type Rotation,
@@ -72,6 +74,7 @@ interface State {
   // Edits
   rotateSelection: (delta: number) => void
   deleteSelection: () => void
+  movePages: (indices: number[], target: number) => void
 
   // Undo/redo
   undo: () => void
@@ -191,6 +194,29 @@ export const useStore = create<State>((set, get) => ({
       undoStack,
       redoStack: [],
       selection: new Set(),
+      currentPage: newCurrent
+    })
+    window.pdf.setDirty(isDirty(next, s.savedPages))
+  },
+
+  movePages: (indices, target) => {
+    const s = get()
+    if (indices.length === 0) return
+    const next = applyMove(s.pages, indices, target)
+    if (pagesEqual(next, s.pages)) return
+    const map = moveIndexMap(s.pages.length, indices, target)
+    const newSelection = new Set<number>()
+    for (const idx of s.selection) {
+      const m = map[idx]
+      if (m >= 0) newSelection.add(m)
+    }
+    const newCurrent = map[s.currentPage] >= 0 ? map[s.currentPage] : 0
+    const undoStack = pushUndo(s.undoStack, s.pages)
+    set({
+      pages: next,
+      undoStack,
+      redoStack: [],
+      selection: newSelection,
       currentPage: newCurrent
     })
     window.pdf.setDirty(isDirty(next, s.savedPages))

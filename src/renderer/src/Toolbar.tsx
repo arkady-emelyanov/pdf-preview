@@ -1,6 +1,11 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useStore } from './store'
 import { pagesEqual } from '../../shared/edit'
+
+function basenameNoExt(name: string): string {
+  const dot = name.lastIndexOf('.')
+  return dot > 0 ? name.slice(0, dot) : name
+}
 
 export function Toolbar(): JSX.Element {
   const doc = useStore((s) => s.doc)
@@ -8,6 +13,7 @@ export function Toolbar(): JSX.Element {
   const savedPages = useStore((s) => s.savedPages)
   const undoStack = useStore((s) => s.undoStack)
   const redoStack = useStore((s) => s.redoStack)
+  const selection = useStore((s) => s.selection)
   const scale = useStore((s) => s.scale)
   const zoomMode = useStore((s) => s.zoomMode)
   const currentPage = useStore((s) => s.currentPage)
@@ -26,21 +32,59 @@ export function Toolbar(): JSX.Element {
 
   const dirty = !pagesEqual(pages, savedPages)
 
-  const onSave = async (): Promise<void> => {
+  const doSave = async (): Promise<void> => {
     if (!doc || busy) return
     setBusy(true)
     try {
       const res = await window.pdf.save(doc.id, pages)
-      if (res.ok) {
-        markSaved()
-      } else {
-        // eslint-disable-next-line no-alert
-        alert(`Save failed: ${res.error}`)
-      }
+      if (res.ok) markSaved()
+      else alert(`Save failed: ${res.error}`)
     } finally {
       setBusy(false)
     }
   }
+
+  const doSaveAs = async (): Promise<void> => {
+    if (!doc || busy) return
+    setBusy(true)
+    try {
+      const def = `${basenameNoExt(doc.name)} copy.pdf`
+      const res = await window.pdf.saveAs(doc.id, pages, def)
+      if (res.ok === false && res.error) alert(`Save As failed: ${res.error}`)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const doExtract = async (): Promise<void> => {
+    if (!doc || busy || selection.size === 0) return
+    setBusy(true)
+    try {
+      const subset = [...selection]
+        .sort((a, b) => a - b)
+        .map((i) => pages[i])
+        .filter(Boolean)
+      const def = `${basenameNoExt(doc.name)} extract.pdf`
+      const res = await window.pdf.saveAs(doc.id, subset, def)
+      if (res.ok === false && res.error) alert(`Extract failed: ${res.error}`)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  useEffect(() => {
+    const off1 = window.pdf.onMenu('save', () => void doSave())
+    const off2 = window.pdf.onMenu('saveAs', () => void doSaveAs())
+    const off3 = window.pdf.onMenu('extractSelection', () => void doExtract())
+    return () => {
+      off1()
+      off2()
+      off3()
+    }
+    // doSave/doSaveAs/doExtract use stale closures, but they always read
+    // current state via store/window; safe to not list as deps.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   return (
     <div className="toolbar">
@@ -67,24 +111,25 @@ export function Toolbar(): JSX.Element {
             ↷
           </button>
           <div className="divider" />
-          <button
-            onClick={() => rotateSelection(-90)}
-            title="Rotate left (Ctrl+[)"
-          >
+          <button onClick={() => rotateSelection(-90)} title="Rotate left (Ctrl+[)">
             ⟲
           </button>
-          <button
-            onClick={() => rotateSelection(90)}
-            title="Rotate right (Ctrl+])"
-          >
+          <button onClick={() => rotateSelection(90)} title="Rotate right (Ctrl+])">
             ⟳
           </button>
           <button onClick={() => deleteSelection()} title="Delete page(s) (Del)">
             ✕
           </button>
           <div className="divider" />
-          <button onClick={onSave} disabled={!dirty || busy} title="Save (Ctrl+S)">
+          <button onClick={doSave} disabled={!dirty || busy} title="Save (Ctrl+S)">
             {busy ? '…' : '💾'}
+          </button>
+          <button
+            onClick={doExtract}
+            disabled={selection.size === 0 || busy}
+            title="Export selected pages as new PDF…"
+          >
+            ⇲
           </button>
         </>
       )}

@@ -1,11 +1,14 @@
 import { describe, it, expect } from 'vitest'
 import {
   applyDelete,
+  applyMove,
   applyRotate,
   identityPages,
+  moveIndexMap,
   normalizeRotation,
   pagesEqual,
-  rotatedSize
+  rotatedSize,
+  type VirtualPage
 } from '../src/shared/edit'
 
 describe('normalizeRotation', () => {
@@ -91,5 +94,78 @@ describe('applyDelete', () => {
     const a = identityPages(3)
     applyDelete(a, [0])
     expect(a).toHaveLength(3)
+  })
+})
+
+describe('applyMove', () => {
+  const a: VirtualPage[] = [
+    { sourceIndex: 0, rotation: 0 },
+    { sourceIndex: 1, rotation: 0 },
+    { sourceIndex: 2, rotation: 0 },
+    { sourceIndex: 3, rotation: 0 },
+    { sourceIndex: 4, rotation: 0 }
+  ]
+
+  it('moves single page forward', () => {
+    // [A,B,C,D,E] move A to index 2 → [B,A,C,D,E]
+    const r = applyMove(a, [0], 2)
+    expect(r.map((p) => p.sourceIndex)).toEqual([1, 0, 2, 3, 4])
+  })
+
+  it('moves single page backward', () => {
+    // [A,B,C,D,E] move D to index 0 → [D,A,B,C,E]
+    const r = applyMove(a, [3], 0)
+    expect(r.map((p) => p.sourceIndex)).toEqual([3, 0, 1, 2, 4])
+  })
+
+  it('moves multiple non-contiguous to insertion point', () => {
+    // [A,B,C,D,E] move A,C to insertion 4 → [B,D,A,C,E]
+    const r = applyMove(a, [0, 2], 4)
+    expect(r.map((p) => p.sourceIndex)).toEqual([1, 3, 0, 2, 4])
+  })
+
+  it('moves to end (target = length)', () => {
+    const r = applyMove(a, [0], 5)
+    expect(r.map((p) => p.sourceIndex)).toEqual([1, 2, 3, 4, 0])
+  })
+
+  it('moves to start (target = 0)', () => {
+    const r = applyMove(a, [4], 0)
+    expect(r.map((p) => p.sourceIndex)).toEqual([4, 0, 1, 2, 3])
+  })
+
+  it('is a no-op when moving back to same position', () => {
+    const r = applyMove(a, [2], 2)
+    expect(r).toEqual(a)
+    const r2 = applyMove(a, [2], 3)
+    expect(r2).toEqual(a)
+  })
+
+  it('rejects out-of-range indices', () => {
+    expect(applyMove(a, [5], 0)).toEqual(a)
+    expect(applyMove(a, [0], -1)).toEqual(a)
+    expect(applyMove(a, [0], 99)).toEqual(a)
+  })
+
+  it('does not mutate input', () => {
+    const r = applyMove(a, [0, 2], 4)
+    expect(a.map((p) => p.sourceIndex)).toEqual([0, 1, 2, 3, 4])
+    expect(r).not.toBe(a)
+  })
+})
+
+describe('moveIndexMap', () => {
+  it('maps single move correctly', () => {
+    // 5 pages, move index 0 to insertion 3 → [B,C,A,D,E]
+    // Original 0 lands at 2; original 1 → 0; original 2 → 1; original 3 → 3; original 4 → 4
+    const m = moveIndexMap(5, [0], 3)
+    expect(m).toEqual([2, 0, 1, 3, 4])
+  })
+
+  it('maps multi-move correctly', () => {
+    // 5 pages, move [0,2] to insertion 4 → [B,D,A,C,E]
+    // A(0)→2, B(1)→0, C(2)→3, D(3)→1, E(4)→4
+    const m = moveIndexMap(5, [0, 2], 4)
+    expect(m).toEqual([2, 0, 3, 1, 4])
   })
 })

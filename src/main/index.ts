@@ -1,6 +1,7 @@
 import { app, ipcMain, BrowserWindow } from 'electron'
 import { readFile } from 'node:fs/promises'
 import { basename } from 'node:path'
+import { dialog } from 'electron'
 import { focusOrCreate, createBlankWindow, pathForWindow } from './windows'
 import { buildMenu, showOpenDialog } from './menu'
 import {
@@ -88,10 +89,37 @@ app.whenReady().then(() => {
       if (!win) return { ok: false, error: 'no window' }
       try {
         await saveDoc(id, id, pages)
-        // Reopen so PDFium picks up the new file for subsequent renders.
         const bytes = await readFile(id)
         await openDoc(id, bytes)
         return { ok: true }
+      } catch (e) {
+        return { ok: false, error: String((e as Error).message ?? e) }
+      }
+    }
+  )
+
+  ipcMain.handle(
+    'pdf:saveAs',
+    async (
+      evt,
+      sourceId: string,
+      pages: VirtualPage[],
+      defaultName: string
+    ): Promise<{ ok: true; path: string } | { ok: false; error?: string }> => {
+      const win = BrowserWindow.fromWebContents(evt.sender)
+      if (!win) return { ok: false, error: 'no window' }
+      const res = await dialog.showSaveDialog(win, {
+        title: 'Save PDF',
+        defaultPath: defaultName,
+        filters: [{ name: 'PDF', extensions: ['pdf'] }]
+      })
+      if (res.canceled || !res.filePath) return { ok: false }
+      const dest = res.filePath.toLowerCase().endsWith('.pdf')
+        ? res.filePath
+        : `${res.filePath}.pdf`
+      try {
+        await saveDoc(sourceId, dest, pages)
+        return { ok: true, path: dest }
       } catch (e) {
         return { ok: false, error: String((e as Error).message ?? e) }
       }

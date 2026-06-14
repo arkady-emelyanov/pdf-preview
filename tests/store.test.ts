@@ -273,6 +273,36 @@ describe('store: edit ops', () => {
   })
 })
 
+describe('store: movePages', () => {
+  beforeEach(() => useStore.getState().setDoc(doc))
+
+  it('reorders pages and follows currentPage', () => {
+    const api = useStore.getState()
+    useStore.setState({ currentPage: 0 })
+    api.movePages([0], 3) // move page A to end-1
+    const s = useStore.getState()
+    expect(s.pages.map((p) => p.sourceIndex)).toEqual([1, 2, 0])
+    expect(s.currentPage).toBe(2) // A moved to position 2
+    expect(s.undoStack).toHaveLength(1)
+    expect(setDirty).toHaveBeenLastCalledWith(true)
+  })
+
+  it('rewrites selection through the move', () => {
+    const api = useStore.getState()
+    api.setSelection(new Set([0, 1]))
+    api.movePages([0, 1], 3) // move A,B past C
+    const s = useStore.getState()
+    expect(s.pages.map((p) => p.sourceIndex)).toEqual([2, 0, 1])
+    expect([...s.selection].sort()).toEqual([1, 2])
+  })
+
+  it('no-op move does not push undo', () => {
+    const api = useStore.getState()
+    api.movePages([0], 0)
+    expect(useStore.getState().undoStack).toHaveLength(0)
+  })
+})
+
 describe('store: selection helpers', () => {
   beforeEach(() => useStore.getState().setDoc(doc))
 

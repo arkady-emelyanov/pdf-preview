@@ -1,6 +1,11 @@
 import { Menu, dialog, BrowserWindow } from 'electron'
 import { focusOrCreate } from './windows'
 
+function send(channel: string): void {
+  const win = BrowserWindow.getFocusedWindow()
+  if (win) win.webContents.send(channel)
+}
+
 export async function showOpenDialog(parent?: BrowserWindow): Promise<void> {
   const res = await dialog.showOpenDialog(parent ?? (undefined as never), {
     filters: [{ name: 'PDF', extensions: ['pdf'] }],
@@ -18,6 +23,17 @@ export function buildMenu(): void {
           label: 'Open…',
           accelerator: 'CmdOrCtrl+O',
           click: async (_item, win) => showOpenDialog(win as BrowserWindow | undefined)
+        },
+        { type: 'separator' },
+        { label: 'Save', accelerator: 'CmdOrCtrl+S', click: () => send('menu:save') },
+        {
+          label: 'Save As…',
+          accelerator: 'CmdOrCtrl+Shift+S',
+          click: () => send('menu:saveAs')
+        },
+        {
+          label: 'Export Selection As…',
+          click: () => send('menu:extractSelection')
         },
         { type: 'separator' },
         { role: 'close', label: 'Close Window' },
