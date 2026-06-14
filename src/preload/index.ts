@@ -10,6 +10,7 @@ const api = {
   findMatchRects: (id: string, pageIndex: number, query: string): Promise<PageRect[] | null> =>
     ipcRenderer.invoke('pdf:findMatchRects', id, pageIndex, query),
   close: (id: string): void => ipcRenderer.send('pdf:close', id),
+  showOpenDialog: (): void => ipcRenderer.send('pdf:showOpenDialog'),
   onDocAssigned: (cb: () => void): (() => void) => {
     const handler = (): void => cb()
     ipcRenderer.on('pdf:docAssigned', handler)

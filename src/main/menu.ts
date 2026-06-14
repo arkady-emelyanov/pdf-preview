@@ -1,6 +1,14 @@
 import { Menu, dialog, BrowserWindow } from 'electron'
 import { focusOrCreate } from './windows'
 
+export async function showOpenDialog(parent?: BrowserWindow): Promise<void> {
+  const res = await dialog.showOpenDialog(parent ?? (undefined as never), {
+    filters: [{ name: 'PDF', extensions: ['pdf'] }],
+    properties: ['openFile']
+  })
+  if (!res.canceled && res.filePaths[0]) focusOrCreate(res.filePaths[0])
+}
+
 export function buildMenu(): void {
   const template: Electron.MenuItemConstructorOptions[] = [
     {
@@ -9,13 +17,7 @@ export function buildMenu(): void {
         {
           label: 'Open…',
           accelerator: 'CmdOrCtrl+O',
-          click: async (_item, win) => {
-            const res = await dialog.showOpenDialog(win ?? undefined as never, {
-              filters: [{ name: 'PDF', extensions: ['pdf'] }],
-              properties: ['openFile']
-            })
-            if (!res.canceled && res.filePaths[0]) focusOrCreate(res.filePaths[0])
-          }
+          click: async (_item, win) => showOpenDialog(win as BrowserWindow | undefined)
         },
         { type: 'separator' },
         { role: 'close', label: 'Close Window' },

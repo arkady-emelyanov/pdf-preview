@@ -93,7 +93,15 @@ export function Viewport(): JSX.Element {
   }, [jumpRequest, layout, consumeJump])
 
   if (!doc) {
-    return <div className="placeholder">Open a PDF with File → Open…</div>
+    return (
+      <div
+        className="placeholder"
+        onDoubleClick={() => window.pdf.showOpenDialog()}
+        title="Double-click to open a PDF"
+      >
+        Double-click to open a PDF · or File → Open…
+      </div>
+    )
   }
   if (!layout) return <div />
 

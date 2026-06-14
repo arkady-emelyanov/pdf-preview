@@ -2,7 +2,7 @@ import { app, ipcMain, BrowserWindow } from 'electron'
 import { readFile } from 'node:fs/promises'
 import { basename } from 'node:path'
 import { focusOrCreate, createBlankWindow, pathForWindow } from './windows'
-import { buildMenu } from './menu'
+import { buildMenu, showOpenDialog } from './menu'
 import {
   openDoc,
   closeDoc,
@@ -64,6 +64,11 @@ app.whenReady().then(() => {
   )
 
   ipcMain.on('pdf:close', (_evt, id: string) => closeDoc(id))
+
+  ipcMain.on('pdf:showOpenDialog', (evt) => {
+    const win = BrowserWindow.fromWebContents(evt.sender) ?? undefined
+    showOpenDialog(win)
+  })
 
   if (initialFiles.length) initialFiles.forEach(focusOrCreate)
   else createBlankWindow()
