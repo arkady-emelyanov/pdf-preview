@@ -2,7 +2,13 @@ import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { DocInfo, PageRect, RenderedPageMsg, SourceInfo } from '../shared/ipc'
 import type { VirtualPage } from '../shared/edit'
 
-type MenuChannel = 'save' | 'saveAs' | 'extractSelection' | 'insertPages' | 'mergePdfs'
+type MenuChannel =
+  | 'save'
+  | 'saveAs'
+  | 'extractSelection'
+  | 'insertPages'
+  | 'mergePdfs'
+  | 'saveAndClose'
 
 const api = {
   openCurrent: (): Promise<DocInfo | null> => ipcRenderer.invoke('pdf:open'),
@@ -37,6 +43,8 @@ const api = {
   ): Promise<{ ok: true; path: string } | { ok: false; error?: string }> =>
     ipcRenderer.invoke('pdf:saveAs', sources, pages, defaultName),
   setDirty: (dirty: boolean): void => ipcRenderer.send('pdf:setDirty', dirty),
+  saveAndCloseResult: (ok: boolean): void =>
+    ipcRenderer.send('pdf:saveAndCloseResult', ok),
   close: (id: string): void => ipcRenderer.send('pdf:close', id),
   showOpenDialog: (): void => ipcRenderer.send('pdf:showOpenDialog'),
   openPath: (path: string): void => ipcRenderer.send('pdf:openPath', path),

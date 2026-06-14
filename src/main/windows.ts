@@ -1,9 +1,21 @@
-import { BrowserWindow, shell } from 'electron'
+import { BrowserWindow, dialog, shell } from 'electron'
 import { realpathSync } from 'node:fs'
 import { basename, join } from 'node:path'
 
 const windowsByPath = new Map<string, BrowserWindow>()
 const blankWindows = new Set<BrowserWindow>()
+const dirtyByWindow = new WeakMap<BrowserWindow, boolean>()
+/** Windows currently allowed to close without re-prompting (we said OK once). */
+const closingApproved = new WeakSet<BrowserWindow>()
+
+export function setWindowDirty(win: BrowserWindow, dirty: boolean): void {
+  dirtyByWindow.set(win, dirty)
+}
+
+/** Approve the next close for this window (skip the dirty prompt). */
+export function approveClose(win: BrowserWindow): void {
+  closingApproved.add(win)
+}
 
 function canonical(path: string): string {
   try {
@@ -33,6 +45,36 @@ function buildWindow(title: string): BrowserWindow {
   win.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url)
     return { action: 'deny' }
+  })
+
+  win.on('close', (event) => {
+    if (closingApproved.has(win)) return
+    if (!dirtyByWindow.get(win)) return
+    event.preventDefault()
+    const name = win.getTitle().replace(/^•\s+/, '') || 'this document'
+    // Order matters: button index is platform-stable. We use buttons[response].
+    const buttons = ["Don't Save", 'Cancel', 'Save']
+    dialog
+      .showMessageBox(win, {
+        type: 'warning',
+        buttons,
+        defaultId: 2,
+        cancelId: 1,
+        message: `Save changes to ${name} before closing?`,
+        detail: 'Your edits will be lost if you don’t save.'
+      })
+      .then(({ response }) => {
+        if (response === 1) return // Cancel
+        if (response === 0) {
+          // Don't save — destroy immediately.
+          closingApproved.add(win)
+          dirtyByWindow.set(win, false)
+          win.destroy()
+          return
+        }
+        // Save — renderer will save and then call window.pdf.close() on success.
+        win.webContents.send('menu:saveAndClose')
+      })
   })
 
   if (process.env['ELECTRON_RENDERER_URL']) {

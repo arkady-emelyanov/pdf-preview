@@ -2,7 +2,13 @@ import { app, ipcMain, BrowserWindow } from 'electron'
 import { readFile } from 'node:fs/promises'
 import { basename } from 'node:path'
 import { dialog } from 'electron'
-import { focusOrCreate, createBlankWindow, pathForWindow } from './windows'
+import {
+  focusOrCreate,
+  createBlankWindow,
+  pathForWindow,
+  setWindowDirty,
+  approveClose
+} from './windows'
 import { buildMenu, showOpenDialog } from './menu'
 import { realpathSync } from 'node:fs'
 import {
@@ -172,10 +178,19 @@ app.whenReady().then(() => {
     }
   )
 
+  ipcMain.on('pdf:saveAndCloseResult', (evt, ok: boolean) => {
+    const win = BrowserWindow.fromWebContents(evt.sender)
+    if (!win || !ok) return
+    approveClose(win)
+    setWindowDirty(win, false)
+    win.destroy()
+  })
+
   ipcMain.on('pdf:setDirty', (evt, dirty: boolean) => {
     const win = BrowserWindow.fromWebContents(evt.sender)
     if (!win) return
     win.setDocumentEdited(dirty)
+    setWindowDirty(win, dirty)
     const cur = win.getTitle().replace(/^•\s+/, '')
     win.setTitle(dirty ? `• ${cur}` : cur)
   })

@@ -94,6 +94,26 @@ export function Toolbar(): JSX.Element {
     }
   }
 
+  const doSaveAndClose = async (): Promise<void> => {
+    if (!doc) {
+      window.pdf.saveAndCloseResult(true)
+      return
+    }
+    setBusy(true)
+    try {
+      const res = await window.pdf.save(sourcePaths(), doc.id, pages)
+      if (res.ok) {
+        markSaved()
+        window.pdf.saveAndCloseResult(true)
+      } else {
+        alert(`Save failed: ${res.error}`)
+        window.pdf.saveAndCloseResult(false)
+      }
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const doMerge = async (): Promise<void> => {
     if (!doc || busy) return
     setBusy(true)
@@ -119,12 +139,14 @@ export function Toolbar(): JSX.Element {
     const off3 = window.pdf.onMenu('extractSelection', () => void doExtract())
     const off4 = window.pdf.onMenu('insertPages', () => void doInsert())
     const off5 = window.pdf.onMenu('mergePdfs', () => void doMerge())
+    const off6 = window.pdf.onMenu('saveAndClose', () => void doSaveAndClose())
     return () => {
       off1()
       off2()
       off3()
       off4()
       off5()
+      off6()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
