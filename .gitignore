@@ -1,0 +1,15 @@
+node_modules/
+out/
+dist/
+release/
+.vite/
+
+# TS incremental build info
+*.tsbuildinfo
+
+# Local editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.log

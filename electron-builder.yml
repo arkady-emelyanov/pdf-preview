@@ -1,0 +1,19 @@
+appId: org.previewlinux.app
+productName: Preview
+directories:
+  output: release
+  buildResources: resources
+files:
+  - out/**/*
+  - package.json
+linux:
+  target:
+    - target: AppImage
+      arch: [x64]
+  category: Office
+  mimeTypes:
+    - application/pdf
+  desktop:
+    Name: Preview
+    Comment: View and edit PDF files
+    Categories: Office;Viewer;
