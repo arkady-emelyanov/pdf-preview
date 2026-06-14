@@ -3,7 +3,8 @@ import type { PageRect } from '../../shared/ipc'
 
 interface Props {
   docId: string
-  pageIndex: number
+  sourceIndex: number
+  rotation: number
   scale: number
   expectedWidth: number
   expectedHeight: number
@@ -13,7 +14,8 @@ interface Props {
 
 export function PdfPage({
   docId,
-  pageIndex,
+  sourceIndex,
+  rotation,
   scale,
   expectedWidth,
   expectedHeight,
@@ -27,7 +29,7 @@ export function PdfPage({
     if (!visible) return
     let cancelled = false
     ;(async () => {
-      const res = await window.pdf.renderPage(docId, pageIndex, scale)
+      const res = await window.pdf.renderPage(docId, sourceIndex, scale, rotation)
       if (cancelled || !res || !canvasRef.current) return
       const canvas = canvasRef.current
       canvas.width = res.width
@@ -44,11 +46,17 @@ export function PdfPage({
     return () => {
       cancelled = true
     }
-  }, [docId, pageIndex, scale, visible])
+  }, [docId, sourceIndex, rotation, scale, visible])
 
   useEffect(() => {
     setRendered(false)
-  }, [scale])
+  }, [scale, rotation])
+
+  // Rotation note: highlights are PDF-page coords for the *unrotated* page.
+  // When the page is rotated for display, the cleanest fix is to either
+  // re-project rects through the rotation, or hide highlights on rotated
+  // pages. For v1 we hide them on rotated pages to avoid misleading boxes.
+  const showHighlights = rotation === 0 && highlights && highlights.length > 0
 
   return (
     <div className="pdf-page-slot" style={{ width: expectedWidth, height: expectedHeight }}>
@@ -63,12 +71,12 @@ export function PdfPage({
       />
       {!rendered && (
         <div className="pdf-page-placeholder">
-          <span>{pageIndex + 1}</span>
+          <span>{sourceIndex + 1}</span>
         </div>
       )}
-      {highlights && highlights.length > 0 && (
+      {showHighlights && (
         <div className="highlight-layer">
-          {highlights.map((r, i) => (
+          {highlights!.map((r, i) => (
             <div
               key={i}
               className="highlight"

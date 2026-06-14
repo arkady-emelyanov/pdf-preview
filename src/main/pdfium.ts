@@ -150,7 +150,8 @@ export function getAllPageSizes(id: string): PageSize[] | null {
 export async function renderPage(
   id: string,
   pageIndex: number,
-  scale: number
+  scale: number,
+  rotation: number = 0
 ): Promise<RenderedPage | null> {
   const d = docs.get(id)
   if (!d) return null
@@ -161,8 +162,14 @@ export async function renderPage(
   if (!pagePtr) return null
 
   const size = d.pageSizes[pageIndex]
-  const width = Math.max(1, Math.floor(size.width * scale))
-  const height = Math.max(1, Math.floor(size.height * scale))
+  // PDFium's rotate param: 0/1/2/3 = 0/90/180/270 CW. Output bitmap dimensions
+  // must reflect the rotated page (swap on 90/270).
+  const rotateParam = (((rotation % 360) + 360) % 360) / 90
+  const rotated = rotateParam === 1 || rotateParam === 3
+  const srcW = rotated ? size.height : size.width
+  const srcH = rotated ? size.width : size.height
+  const width = Math.max(1, Math.floor(srcW * scale))
+  const height = Math.max(1, Math.floor(srcH * scale))
   const stride = width * 4
   const bufSize = stride * height
   const bufPtr = raw.wasmExports.malloc(bufSize)
@@ -180,7 +187,16 @@ export async function renderPage(
   }
 
   mod.FPDFBitmap_FillRect(bitmap, 0, 0, width, height, 0xffffffff)
-  mod.FPDF_RenderPageBitmap(bitmap, pagePtr, 0, 0, width, height, 0, FPDF_REVERSE_BYTE_ORDER)
+  mod.FPDF_RenderPageBitmap(
+    bitmap,
+    pagePtr,
+    0,
+    0,
+    width,
+    height,
+    rotateParam,
+    FPDF_REVERSE_BYTE_ORDER
+  )
 
   const data = new Uint8Array(bufSize)
   data.set(raw.HEAPU8.subarray(bufPtr, bufPtr + bufSize))

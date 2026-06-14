@@ -1,5 +1,14 @@
 import { create } from 'zustand'
 import type { DocInfo, PageRect } from '../../shared/ipc'
+import {
+  applyDelete,
+  applyRotate,
+  identityPages,
+  pagesEqual,
+  rotatedSize,
+  type Rotation,
+  type VirtualPage
+} from '../../shared/edit'
 
 export type ZoomMode = 'fit-width' | 'fit-page' | 'actual' | 'custom'
 
@@ -9,8 +18,20 @@ export interface SearchHit {
   rects: PageRect[]
 }
 
+const UNDO_LIMIT = 200
+
 interface State {
   doc: DocInfo | null
+
+  // Edit graph
+  pages: VirtualPage[]
+  undoStack: VirtualPage[][]
+  redoStack: VirtualPage[][]
+  /** State at last save (or open). Drives the dirty marker. */
+  savedPages: VirtualPage[]
+  selection: Set<number>
+
+  // View state
   scale: number
   zoomMode: ZoomMode
   currentPage: number
@@ -19,11 +40,11 @@ interface State {
   searchQuery: string
   searchHits: SearchHit[]
   searchCursor: number
-  /** Per-page highlight rects (in PDF points). Driven by the current search query. */
   highlightsByPage: Map<number, PageRect[]>
   viewportSize: { w: number; h: number }
   jumpRequest: number | null
 
+  // View setters
   setDoc: (d: DocInfo | null) => void
   setScale: (s: number) => void
   setZoomMode: (m: ZoomMode) => void
@@ -39,10 +60,39 @@ interface State {
   setViewportSize: (w: number, h: number) => void
   requestJump: (p: number) => void
   consumeJump: () => void
+
+  // Selection
+  setSelection: (s: Set<number>) => void
+  selectOnly: (i: number) => void
+  toggleSelect: (i: number) => void
+  selectRange: (anchor: number, target: number) => void
+  clearSelection: () => void
+  getActionTargets: () => number[]
+
+  // Edits
+  rotateSelection: (delta: number) => void
+  deleteSelection: () => void
+
+  // Undo/redo
+  undo: () => void
+  redo: () => void
+
+  // Save sync
+  markSaved: () => void
 }
 
-export const useStore = create<State>((set) => ({
+function isDirty(pages: VirtualPage[], saved: VirtualPage[]): boolean {
+  return !pagesEqual(pages, saved)
+}
+
+export const useStore = create<State>((set, get) => ({
   doc: null,
+  pages: [],
+  undoStack: [],
+  redoStack: [],
+  savedPages: [],
+  selection: new Set(),
+
   scale: 1.25,
   zoomMode: 'custom',
   currentPage: 0,
@@ -55,15 +105,23 @@ export const useStore = create<State>((set) => ({
   viewportSize: { w: 0, h: 0 },
   jumpRequest: null,
 
-  setDoc: (d) =>
+  setDoc: (d) => {
+    const pages = d ? identityPages(d.pageCount) : []
     set({
       doc: d,
+      pages,
+      undoStack: [],
+      redoStack: [],
+      savedPages: pages,
+      selection: new Set(),
       currentPage: 0,
       searchHits: [],
       searchQuery: '',
       searchCursor: -1,
       highlightsByPage: new Map()
-    }),
+    })
+    window.pdf.setDirty(false)
+  },
   setScale: (s) => set({ scale: s, zoomMode: 'custom' }),
   setZoomMode: (m) => set({ zoomMode: m }),
   setCurrentPage: (p) => set({ currentPage: p }),
@@ -83,8 +141,93 @@ export const useStore = create<State>((set) => ({
     }),
   setViewportSize: (w, h) => set({ viewportSize: { w, h } }),
   requestJump: (p) => set({ jumpRequest: p }),
-  consumeJump: () => set({ jumpRequest: null })
+  consumeJump: () => set({ jumpRequest: null }),
+
+  setSelection: (s) => set({ selection: new Set(s) }),
+  selectOnly: (i) => set({ selection: new Set([i]) }),
+  toggleSelect: (i) =>
+    set((st) => {
+      const ns = new Set(st.selection)
+      if (ns.has(i)) ns.delete(i)
+      else ns.add(i)
+      return { selection: ns }
+    }),
+  selectRange: (anchor, target) => {
+    const [lo, hi] = anchor <= target ? [anchor, target] : [target, anchor]
+    const ns = new Set<number>()
+    for (let i = lo; i <= hi; i++) ns.add(i)
+    set({ selection: ns })
+  },
+  clearSelection: () => set({ selection: new Set() }),
+
+  getActionTargets: () => {
+    const s = get()
+    if (s.selection.size > 0) return [...s.selection].sort((a, b) => a - b)
+    return s.pages.length > 0 ? [s.currentPage] : []
+  },
+
+  rotateSelection: (delta) => {
+    const s = get()
+    const targets = s.getActionTargets()
+    if (targets.length === 0) return
+    const next = applyRotate(s.pages, targets, delta)
+    if (pagesEqual(next, s.pages)) return
+    const undoStack = pushUndo(s.undoStack, s.pages)
+    set({ pages: next, undoStack, redoStack: [] })
+    window.pdf.setDirty(isDirty(next, s.savedPages))
+  },
+
+  deleteSelection: () => {
+    const s = get()
+    const targets = s.getActionTargets()
+    if (targets.length === 0 || targets.length >= s.pages.length) return
+    const next = applyDelete(s.pages, targets)
+    const undoStack = pushUndo(s.undoStack, s.pages)
+    // Move current page so it stays valid; shift selection clear.
+    const minDel = Math.min(...targets)
+    const newCurrent = Math.max(0, Math.min(next.length - 1, minDel))
+    set({
+      pages: next,
+      undoStack,
+      redoStack: [],
+      selection: new Set(),
+      currentPage: newCurrent
+    })
+    window.pdf.setDirty(isDirty(next, s.savedPages))
+  },
+
+  undo: () => {
+    const s = get()
+    if (s.undoStack.length === 0) return
+    const prev = s.undoStack[s.undoStack.length - 1]
+    const undoStack = s.undoStack.slice(0, -1)
+    const redoStack = [...s.redoStack, s.pages]
+    set({ pages: prev, undoStack, redoStack, selection: new Set() })
+    window.pdf.setDirty(isDirty(prev, s.savedPages))
+  },
+
+  redo: () => {
+    const s = get()
+    if (s.redoStack.length === 0) return
+    const next = s.redoStack[s.redoStack.length - 1]
+    const redoStack = s.redoStack.slice(0, -1)
+    const undoStack = pushUndo(s.undoStack, s.pages)
+    set({ pages: next, undoStack, redoStack, selection: new Set() })
+    window.pdf.setDirty(isDirty(next, s.savedPages))
+  },
+
+  markSaved: () => {
+    const s = get()
+    set({ savedPages: s.pages })
+    window.pdf.setDirty(false)
+  }
 }))
+
+function pushUndo(stack: VirtualPage[][], snapshot: VirtualPage[]): VirtualPage[][] {
+  const next = [...stack, snapshot]
+  if (next.length > UNDO_LIMIT) next.shift()
+  return next
+}
 
 export function maxPageWidth(d: DocInfo): number {
   return d.pageSizes.reduce((m, s) => Math.max(m, s.width), 1)
@@ -94,19 +237,31 @@ export function maxPageHeight(d: DocInfo): number {
   return d.pageSizes.reduce((m, s) => Math.max(m, s.height), 1)
 }
 
+/** Source page sizes accounting for the edit-graph's rotation. */
+export function virtualPageSizes(d: DocInfo, pages: VirtualPage[]): { width: number; height: number }[] {
+  return pages.map((vp) => rotatedSize(d.pageSizes[vp.sourceIndex], vp.rotation))
+}
+
 export function computeFittedScale(
   d: DocInfo,
   mode: ZoomMode,
-  vp: { w: number; h: number }
+  vp: { w: number; h: number },
+  pages?: VirtualPage[]
 ): number | null {
   if (vp.w <= 0 || vp.h <= 0) return null
   const pad = 32
-  if (mode === 'fit-width') return (vp.w - pad) / maxPageWidth(d)
+  const sizes = pages ? virtualPageSizes(d, pages) : d.pageSizes
+  const maxW = sizes.reduce((m, s) => Math.max(m, s.width), 1)
+  const maxH = sizes.reduce((m, s) => Math.max(m, s.height), 1)
+  if (mode === 'fit-width') return (vp.w - pad) / maxW
   if (mode === 'fit-page') {
-    const sw = (vp.w - pad) / maxPageWidth(d)
-    const sh = (vp.h - pad) / maxPageHeight(d)
+    const sw = (vp.w - pad) / maxW
+    const sh = (vp.h - pad) / maxH
     return Math.min(sw, sh)
   }
   if (mode === 'actual') return 1
   return null
 }
+
+// Re-export for components
+export type { Rotation, VirtualPage }

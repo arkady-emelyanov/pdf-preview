@@ -201,6 +201,8 @@ html, body, #root {
 }
 .thumb.active { border-color: #4a6; }
 .thumb.active .thumb-label { color: #ddd; }
+.thumb.selected { background: rgba(74, 162, 102, 0.18); }
+.thumb.selected canvas { outline: 2px solid #4a6; }
 
 .viewport-scroll {
   flex: 1;

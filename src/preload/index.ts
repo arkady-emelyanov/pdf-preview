@@ -1,14 +1,26 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { DocInfo, PageRect, RenderedPageMsg } from '../shared/ipc'
+import type { VirtualPage } from '../shared/edit'
 
 const api = {
   openCurrent: (): Promise<DocInfo | null> => ipcRenderer.invoke('pdf:open'),
-  renderPage: (id: string, pageIndex: number, scale: number): Promise<RenderedPageMsg | null> =>
-    ipcRenderer.invoke('pdf:renderPage', id, pageIndex, scale),
+  renderPage: (
+    id: string,
+    pageIndex: number,
+    scale: number,
+    rotation = 0
+  ): Promise<RenderedPageMsg | null> =>
+    ipcRenderer.invoke('pdf:renderPage', id, pageIndex, scale, rotation),
   getText: (id: string, pageIndex: number): Promise<string | null> =>
     ipcRenderer.invoke('pdf:getText', id, pageIndex),
   findMatchRects: (id: string, pageIndex: number, query: string): Promise<PageRect[] | null> =>
     ipcRenderer.invoke('pdf:findMatchRects', id, pageIndex, query),
+  save: (
+    id: string,
+    pages: VirtualPage[]
+  ): Promise<{ ok: true } | { ok: false; error: string }> =>
+    ipcRenderer.invoke('pdf:save', id, pages),
+  setDirty: (dirty: boolean): void => ipcRenderer.send('pdf:setDirty', dirty),
   close: (id: string): void => ipcRenderer.send('pdf:close', id),
   showOpenDialog: (): void => ipcRenderer.send('pdf:showOpenDialog'),
   openPath: (path: string): void => ipcRenderer.send('pdf:openPath', path),

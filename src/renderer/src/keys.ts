@@ -3,14 +3,14 @@ import { useStore } from './store'
 
 export function useKeyboardShortcuts(): void {
   useEffect(() => {
-    const handler = (e: KeyboardEvent): void => {
+    const handler = async (e: KeyboardEvent): Promise<void> => {
       const tag = (e.target as HTMLElement)?.tagName
       const inField = tag === 'INPUT' || tag === 'TEXTAREA'
       const s = useStore.getState()
       const doc = s.doc
+      const mod = e.ctrlKey || e.metaKey
 
-      // Ctrl+F always (even from inputs? skip from inputs to keep native find-in-input)
-      if (!inField && (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
+      if (!inField && mod && e.key.toLowerCase() === 'f') {
         e.preventDefault()
         s.openSearch()
         return
@@ -18,43 +18,79 @@ export function useKeyboardShortcuts(): void {
 
       if (!doc) return
 
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'l') {
+      if (mod && e.key.toLowerCase() === 'l') {
         e.preventDefault()
         s.toggleSidebar()
         return
       }
 
-      if ((e.ctrlKey || e.metaKey) && e.key === '0') {
+      if (mod && e.key === '0') {
         e.preventDefault()
         s.setZoomMode('fit-page')
         return
       }
-      if ((e.ctrlKey || e.metaKey) && e.key === '1') {
+      if (mod && e.key === '1') {
         e.preventDefault()
         s.setZoomMode('actual')
         return
       }
-      if ((e.ctrlKey || e.metaKey) && e.key === '2') {
+      if (mod && e.key === '2') {
         e.preventDefault()
         s.setZoomMode('fit-width')
         return
       }
-      if ((e.ctrlKey || e.metaKey) && (e.key === '=' || e.key === '+')) {
+      if (mod && (e.key === '=' || e.key === '+')) {
         e.preventDefault()
         s.setScale(Math.min(6, s.scale + 0.25))
         return
       }
-      if ((e.ctrlKey || e.metaKey) && e.key === '-') {
+      if (mod && e.key === '-') {
         e.preventDefault()
         s.setScale(Math.max(0.25, s.scale - 0.25))
         return
       }
 
+      // Edit shortcuts
+      if (mod && e.key.toLowerCase() === 'z') {
+        e.preventDefault()
+        if (e.shiftKey) s.redo()
+        else s.undo()
+        return
+      }
+      if (mod && e.key.toLowerCase() === 'y') {
+        e.preventDefault()
+        s.redo()
+        return
+      }
+      if (mod && e.key.toLowerCase() === 's') {
+        e.preventDefault()
+        if (s.pages.length > 0) {
+          const res = await window.pdf.save(doc.id, s.pages)
+          if (res.ok) s.markSaved()
+        }
+        return
+      }
+      if (mod && e.key === '[') {
+        e.preventDefault()
+        s.rotateSelection(-90)
+        return
+      }
+      if (mod && e.key === ']') {
+        e.preventDefault()
+        s.rotateSelection(90)
+        return
+      }
+
       if (inField) return
 
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        e.preventDefault()
+        s.deleteSelection()
+        return
+      }
       if (e.key === 'ArrowDown' || e.key === 'PageDown' || e.key === ' ') {
         e.preventDefault()
-        s.requestJump(Math.min(doc.pageCount - 1, s.currentPage + 1))
+        s.requestJump(Math.min(s.pages.length - 1, s.currentPage + 1))
       } else if (e.key === 'ArrowUp' || e.key === 'PageUp') {
         e.preventDefault()
         s.requestJump(Math.max(0, s.currentPage - 1))
@@ -63,9 +99,10 @@ export function useKeyboardShortcuts(): void {
         s.requestJump(0)
       } else if (e.key === 'End') {
         e.preventDefault()
-        s.requestJump(doc.pageCount - 1)
+        s.requestJump(s.pages.length - 1)
       } else if (e.key === 'Escape') {
         if (s.searchOpen) s.closeSearch()
+        s.clearSelection()
       }
     }
     window.addEventListener('keydown', handler)

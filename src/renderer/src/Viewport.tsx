@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { useStore, computeFittedScale } from './store'
+import { useStore, computeFittedScale, virtualPageSizes } from './store'
 import { PdfPage } from './PdfPage'
 
 const PAGE_GAP = 16
@@ -7,6 +7,7 @@ const BUFFER = 2
 
 export function Viewport(): JSX.Element {
   const doc = useStore((s) => s.doc)
+  const pages = useStore((s) => s.pages)
   const scale = useStore((s) => s.scale)
   const zoomMode = useStore((s) => s.zoomMode)
   const setCurrentPage = useStore((s) => s.setCurrentPage)
@@ -32,25 +33,26 @@ export function Viewport(): JSX.Element {
   const vpSize = useStore((s) => s.viewportSize)
   useEffect(() => {
     if (!doc || zoomMode === 'custom') return
-    const s = computeFittedScale(doc, zoomMode, vpSize)
+    const s = computeFittedScale(doc, zoomMode, vpSize, pages)
     if (s && Math.abs(s - scale) > 0.001) {
       useStore.setState({ scale: s })
     }
-  }, [doc, zoomMode, vpSize, scale])
+  }, [doc, zoomMode, vpSize, scale, pages])
 
   const layout = useMemo(() => {
-    if (!doc) return null
+    if (!doc || pages.length === 0) return null
+    const sizes = virtualPageSizes(doc, pages)
     let y = PAGE_GAP
     const tops: number[] = []
-    const sizes = doc.pageSizes.map((sz) => {
+    const scaled = sizes.map((sz) => {
       const w = sz.width * scale
       const h = sz.height * scale
       tops.push(y)
       y += h + PAGE_GAP
       return { w, h }
     })
-    return { tops, sizes, totalHeight: y }
-  }, [doc, scale])
+    return { tops, sizes: scaled, totalHeight: y }
+  }, [doc, pages, scale])
 
   useEffect(() => {
     const el = scrollRef.current
@@ -87,7 +89,7 @@ export function Viewport(): JSX.Element {
 
   useEffect(() => {
     if (jumpRequest == null || !layout || !scrollRef.current) return
-    const top = layout.tops[jumpRequest] - PAGE_GAP
+    const top = layout.tops[Math.max(0, Math.min(layout.tops.length - 1, jumpRequest))] - PAGE_GAP
     scrollRef.current.scrollTo({ top, behavior: 'instant' })
     consumeJump()
   }, [jumpRequest, layout, consumeJump])
@@ -108,11 +110,12 @@ export function Viewport(): JSX.Element {
   return (
     <div ref={scrollRef} className="viewport-scroll">
       <div className="pages-spacer" style={{ height: layout.totalHeight }}>
-        {doc.pageSizes.map((_, i) => {
+        {pages.map((vp, i) => {
           const sz = layout.sizes[i]
+          // For search highlights we key by SOURCE index (search ran on source).
           return (
             <div
-              key={i}
+              key={`${vp.sourceIndex}:${i}`}
               className="page-row"
               style={{
                 position: 'absolute',
@@ -125,12 +128,13 @@ export function Viewport(): JSX.Element {
             >
               <PdfPage
                 docId={doc.id}
-                pageIndex={i}
+                sourceIndex={vp.sourceIndex}
+                rotation={vp.rotation}
                 scale={scale}
                 expectedWidth={sz.w}
                 expectedHeight={sz.h}
                 visible={visibleSet.has(i)}
-                highlights={highlightsByPage.get(i)}
+                highlights={highlightsByPage.get(vp.sourceIndex)}
               />
             </div>
           )
