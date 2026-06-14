@@ -3,43 +3,64 @@ import { PDFDocument, degrees } from 'pdf-lib'
 import type { VirtualPage } from '../shared/edit'
 
 /**
- * Bake a virtual-page edit graph onto disk via pdf-lib.
+ * Bake a (possibly multi-source) virtual-page edit graph onto disk via pdf-lib.
  *
- * We re-create the document from scratch: copy the requested source pages in
- * the requested order, and write our rotation as an absolute /Rotate value
- * (source page's own rotation + our delta).
+ * `sources` maps sourceId → file path. Every page in `pages` must reference a
+ * sourceId present in that map. We copy each page from its source PDF in
+ * order, and write rotation as an absolute /Rotate value (source page's own
+ * rotation + our delta).
  */
 export async function saveDoc(
-  sourcePath: string,
+  sources: Record<string, string>,
   destPath: string,
   pages: VirtualPage[]
 ): Promise<void> {
-  const bytes = await readFile(sourcePath)
-  const src = await PDFDocument.load(bytes)
+  // Load each unique source once. Order doesn't matter; we'll look up by id.
+  const uniqueIds = [...new Set(pages.map((p) => p.sourceId))]
+  const loaded = new Map<string, PDFDocument>()
+  for (const id of uniqueIds) {
+    const path = sources[id]
+    if (!path) throw new Error(`No path registered for source ${id}`)
+    const bytes = await readFile(path)
+    loaded.set(id, await PDFDocument.load(bytes))
+  }
+
   const out = await PDFDocument.create()
 
-  // Carry over basic metadata so the saved file isn't anonymous.
-  try {
-    if (src.getTitle()) out.setTitle(src.getTitle()!)
-    if (src.getAuthor()) out.setAuthor(src.getAuthor()!)
-    if (src.getSubject()) out.setSubject(src.getSubject()!)
-    if (src.getCreator()) out.setCreator(src.getCreator()!)
-  } catch {
-    // metadata is best-effort
+  // Carry over basic metadata from the FIRST source the pages reference.
+  const firstSrc = loaded.get(pages[0]?.sourceId ?? '')
+  if (firstSrc) {
+    try {
+      if (firstSrc.getTitle()) out.setTitle(firstSrc.getTitle()!)
+      if (firstSrc.getAuthor()) out.setAuthor(firstSrc.getAuthor()!)
+      if (firstSrc.getSubject()) out.setSubject(firstSrc.getSubject()!)
+      if (firstSrc.getCreator()) out.setCreator(firstSrc.getCreator()!)
+    } catch {
+      // metadata is best-effort
+    }
   }
   out.setProducer('Preview-for-Linux')
   out.setModificationDate(new Date())
 
-  // copyPages can take a batch; the result preserves order. We do one batch
-  // for efficiency.
-  const indices = pages.map((p) => p.sourceIndex)
-  const copied = await out.copyPages(src, indices)
-  for (let i = 0; i < copied.length; i++) {
-    const page = copied[i]
-    const srcRot = src.getPage(pages[i].sourceIndex).getRotation().angle
-    const absolute = (srcRot + pages[i].rotation) % 360
-    page.setRotation(degrees(absolute))
-    out.addPage(page)
+  // Group consecutive pages from the same source into batches so we can use
+  // copyPages with multiple indices at once.
+  let i = 0
+  while (i < pages.length) {
+    const id = pages[i].sourceId
+    let j = i
+    while (j < pages.length && pages[j].sourceId === id) j++
+    const src = loaded.get(id)!
+    const batch = pages.slice(i, j)
+    const indices = batch.map((p) => p.sourceIndex)
+    const copied = await out.copyPages(src, indices)
+    for (let k = 0; k < copied.length; k++) {
+      const page = copied[k]
+      const srcRot = src.getPage(batch[k].sourceIndex).getRotation().angle
+      const absolute = (srcRot + batch[k].rotation) % 360
+      page.setRotation(degrees(absolute))
+      out.addPage(page)
+    }
+    i = j
   }
 
   const outBytes = await out.save({ useObjectStreams: true })

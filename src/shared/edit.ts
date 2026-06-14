@@ -3,6 +3,8 @@ import type { PageSize } from './ipc'
 export type Rotation = 0 | 90 | 180 | 270
 
 export interface VirtualPage {
+  /** Stable id of the source PDF (typically its canonical path). */
+  sourceId: string
   /** Index into the source PDF's original page list. */
   sourceIndex: number
   /** Delta rotation applied on top of the source's own /Rotate. */
@@ -12,7 +14,6 @@ export interface VirtualPage {
 export function normalizeRotation(deg: number): Rotation {
   const n = ((deg % 360) + 360) % 360
   if (n === 0 || n === 90 || n === 180 || n === 270) return n
-  // Snap to nearest quadrant; defensive.
   return (Math.round(n / 90) * 90) % 360 as Rotation
 }
 
@@ -23,10 +24,10 @@ export function rotatedSize(size: PageSize, rotation: Rotation): PageSize {
 }
 
 /** Create the identity edit state for a freshly opened document. */
-export function identityPages(sourcePageCount: number): VirtualPage[] {
+export function identityPages(sourceId: string, sourcePageCount: number): VirtualPage[] {
   const pages: VirtualPage[] = []
   for (let i = 0; i < sourcePageCount; i++) {
-    pages.push({ sourceIndex: i, rotation: 0 })
+    pages.push({ sourceId, sourceIndex: i, rotation: 0 })
   }
   return pages
 }
@@ -34,7 +35,12 @@ export function identityPages(sourcePageCount: number): VirtualPage[] {
 export function pagesEqual(a: VirtualPage[], b: VirtualPage[]): boolean {
   if (a.length !== b.length) return false
   for (let i = 0; i < a.length; i++) {
-    if (a[i].sourceIndex !== b[i].sourceIndex || a[i].rotation !== b[i].rotation) return false
+    if (
+      a[i].sourceId !== b[i].sourceId ||
+      a[i].sourceIndex !== b[i].sourceIndex ||
+      a[i].rotation !== b[i].rotation
+    )
+      return false
   }
   return true
 }
@@ -69,21 +75,24 @@ export function applyMove(
   if (sorted.some((i) => i < 0 || i >= pages.length)) return pages
   if (target < 0 || target > pages.length) return pages
 
-  // Pull the moved pages out, preserving order.
   const moved = sorted.map((i) => pages[i])
   const set = new Set(sorted)
   const remaining = pages.filter((_, i) => !set.has(i))
-
-  // Adjust target by removed-count to the left of the original target.
   const adjustedTarget = target - sorted.filter((i) => i < target).length
 
   return [...remaining.slice(0, adjustedTarget), ...moved, ...remaining.slice(adjustedTarget)]
 }
 
-/**
- * Map old page indices to where they end up after applyMove, so that callers
- * (selection, currentPage) can follow the move.
- */
+/** Insert a batch of new VirtualPages at insertion point `target`. */
+export function applyInsert(
+  pages: VirtualPage[],
+  inserts: VirtualPage[],
+  target: number
+): VirtualPage[] {
+  const t = Math.max(0, Math.min(pages.length, target))
+  return [...pages.slice(0, t), ...inserts, ...pages.slice(t)]
+}
+
 export function moveIndexMap(
   pageCount: number,
   indices: number[],
@@ -94,13 +103,11 @@ export function moveIndexMap(
   const adjustedTarget = target - sorted.filter((i) => i < target).length
   const out = new Array<number>(pageCount).fill(-1)
   let cursor = 0
-  // Static-position items
   for (let i = 0; i < pageCount; i++) {
     if (set.has(i)) continue
     if (cursor === adjustedTarget) cursor += sorted.length
     out[i] = cursor++
   }
-  // Moved items land starting at adjustedTarget
   for (let m = 0; m < sorted.length; m++) {
     out[sorted[m]] = adjustedTarget + m
   }

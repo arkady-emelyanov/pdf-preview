@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useStore } from './store'
-import { pagesEqual } from '../../shared/edit'
+import { identityPages, pagesEqual, type VirtualPage } from '../../shared/edit'
 
 function basenameNoExt(name: string): string {
   const dot = name.lastIndexOf('.')
@@ -14,9 +14,9 @@ export function Toolbar(): JSX.Element {
   const undoStack = useStore((s) => s.undoStack)
   const redoStack = useStore((s) => s.redoStack)
   const selection = useStore((s) => s.selection)
+  const currentPage = useStore((s) => s.currentPage)
   const scale = useStore((s) => s.scale)
   const zoomMode = useStore((s) => s.zoomMode)
-  const currentPage = useStore((s) => s.currentPage)
   const sidebarOpen = useStore((s) => s.sidebarOpen)
   const toggleSidebar = useStore((s) => s.toggleSidebar)
   const setScale = useStore((s) => s.setScale)
@@ -27,6 +27,9 @@ export function Toolbar(): JSX.Element {
   const redo = useStore((s) => s.redo)
   const rotateSelection = useStore((s) => s.rotateSelection)
   const deleteSelection = useStore((s) => s.deleteSelection)
+  const insertPages = useStore((s) => s.insertPages)
+  const registerSource = useStore((s) => s.registerSource)
+  const sourcePaths = useStore((s) => s.sourcePaths)
   const markSaved = useStore((s) => s.markSaved)
   const [busy, setBusy] = useState(false)
 
@@ -36,7 +39,7 @@ export function Toolbar(): JSX.Element {
     if (!doc || busy) return
     setBusy(true)
     try {
-      const res = await window.pdf.save(doc.id, pages)
+      const res = await window.pdf.save(sourcePaths(), doc.id, pages)
       if (res.ok) markSaved()
       else alert(`Save failed: ${res.error}`)
     } finally {
@@ -49,7 +52,7 @@ export function Toolbar(): JSX.Element {
     setBusy(true)
     try {
       const def = `${basenameNoExt(doc.name)} copy.pdf`
-      const res = await window.pdf.saveAs(doc.id, pages, def)
+      const res = await window.pdf.saveAs(sourcePaths(), pages, def)
       if (res.ok === false && res.error) alert(`Save As failed: ${res.error}`)
     } finally {
       setBusy(false)
@@ -65,8 +68,44 @@ export function Toolbar(): JSX.Element {
         .map((i) => pages[i])
         .filter(Boolean)
       const def = `${basenameNoExt(doc.name)} extract.pdf`
-      const res = await window.pdf.saveAs(doc.id, subset, def)
+      const res = await window.pdf.saveAs(sourcePaths(), subset, def)
       if (res.ok === false && res.error) alert(`Extract failed: ${res.error}`)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const doInsert = async (): Promise<void> => {
+    if (!doc || busy) return
+    setBusy(true)
+    try {
+      const paths = await window.pdf.pickFiles(false)
+      if (paths.length === 0) return
+      const src = await window.pdf.registerSource(paths[0])
+      registerSource(src)
+      const inserts: VirtualPage[] = identityPages(src.sourceId, src.pageCount)
+      // Insert AFTER currentPage (or at end if no doc).
+      const target = pages.length === 0 ? 0 : currentPage + 1
+      insertPages(inserts, target)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const doMerge = async (): Promise<void> => {
+    if (!doc || busy) return
+    setBusy(true)
+    try {
+      const paths = await window.pdf.pickFiles(true)
+      if (paths.length === 0) return
+      const aggregated: VirtualPage[] = []
+      for (const p of paths) {
+        const src = await window.pdf.registerSource(p)
+        registerSource(src)
+        aggregated.push(...identityPages(src.sourceId, src.pageCount))
+      }
+      // Append to end.
+      insertPages(aggregated, pages.length)
     } finally {
       setBusy(false)
     }
@@ -76,13 +115,15 @@ export function Toolbar(): JSX.Element {
     const off1 = window.pdf.onMenu('save', () => void doSave())
     const off2 = window.pdf.onMenu('saveAs', () => void doSaveAs())
     const off3 = window.pdf.onMenu('extractSelection', () => void doExtract())
+    const off4 = window.pdf.onMenu('insertPages', () => void doInsert())
+    const off5 = window.pdf.onMenu('mergePdfs', () => void doMerge())
     return () => {
       off1()
       off2()
       off3()
+      off4()
+      off5()
     }
-    // doSave/doSaveAs/doExtract use stale closures, but they always read
-    // current state via store/window; safe to not list as deps.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -119,6 +160,9 @@ export function Toolbar(): JSX.Element {
           </button>
           <button onClick={() => deleteSelection()} title="Delete page(s) (Del)">
             ✕
+          </button>
+          <button onClick={doInsert} title="Insert pages from PDF…">
+            ＋
           </button>
           <div className="divider" />
           <button onClick={doSave} disabled={!dirty || busy} title="Save (Ctrl+S)">

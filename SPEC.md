@@ -137,13 +137,16 @@ this as a known limitation.
 - **AcroForm:** render via PDFium's `renderFormFields` flag; capture filled state on save by re-reading the PDF and copying field values via pdf-lib. Option to flatten on export.
 - **XFA:** detect via PDFium failure or `/XFA` key in catalog → switch that doc's viewport to PDF.js with XFA layer. Read-only fill in v1; document the limitation.
 
-### 4.4 Page operations (**implemented in M2 / M2.1, except insert + merge**)
+### 4.4 Page operations (**implemented in M2 / M2.1 / M2.2**)
 
-Edit model is a list of `VirtualPage {sourceIndex, rotation}` stored in the
-renderer's Zustand store. Each mutation pushes the prior snapshot to the
-undo stack and clears redo; `markSaved()` snapshots current as the
-"clean" reference. Dirty = current pages ≠ saved snapshot. Dirty state
-also feeds Electron's `setDocumentEdited` and prefixes the title with "• ".
+Edit model is a list of `VirtualPage {sourceId, sourceIndex, rotation}` stored in
+the renderer's Zustand store. `sourceId` is the canonical path of the source PDF
+(the primary document on open, or any secondary registered via Insert / Merge).
+The renderer also keeps a `sources: Record<sourceId, SourceInfo>` map so layout,
+thumbnails, and search can resolve page geometry per source. Each mutation pushes
+the prior snapshot to the undo stack and clears redo; `markSaved()` snapshots
+current as the "clean" reference. Dirty = current pages ≠ saved snapshot. Dirty
+state also feeds Electron's `setDocumentEdited` and prefixes the title with "• ".
 
 - **Multi-select in thumbnails** ✅: click, Ctrl+click toggle, Shift+click range.
 - **Rotate** ✅: 90° CW/CCW. Toolbar buttons, `Ctrl+[` / `Ctrl+]`. Operates on selection or current page. PDFium's render flag handles the actual rotation; layout swaps width/height for 90°/270°.
@@ -153,8 +156,10 @@ also feeds Electron's `setDocumentEdited` and prefixes the title with "• ".
 - **Save** ✅: `Ctrl+S`. `pdf-lib` bakes the edit graph by recreating the document via `copyPages` in the requested order and writing absolute `/Rotate` = source rotation + delta. On success, PDFium reopens the file so subsequent renders see the new state.
 - **Save As** ✅: `Ctrl+Shift+S` or File menu. `dialog.showSaveDialog` → bake to chosen path. Auto-appends `.pdf`.
 - **Export Selection As** ✅: File menu or toolbar `⇲` (enabled when selection ≠ ∅). Writes a subset of pages to a chosen path.
-- **Insert from another PDF**: planned. Requires multi-source `VirtualPage` (add a `sourceId` field) and holding multiple PDFium docs open at once.
-- **Merge**: planned. Same multi-source model — pick N files, build a virtual page list spanning them, save to a new untitled doc.
+- **Insert from another PDF** ✅: File → "Insert Pages from PDF…" or toolbar `＋`. Opens a file picker, registers the secondary source via `pdf:registerSource` (canonical path is its `sourceId`; PDFium keeps it open alongside the primary), then inserts its identity page list after the current page. Inserted thumbs get a blue inset border so it's obvious which pages came from elsewhere.
+- **Merge** ✅: File → "Merge PDFs…". Multi-select file picker, registers each source, appends all pages in pick order to the end of the current edit graph. Output stays in the current window; user saves with Save As to materialize.
+
+Save / Save As / Export Selection As all take a `sources: Record<sourceId, path>` map so the bake (`saveDoc`) can load each source PDF once and copy pages from it. Consecutive pages from the same source are batched into a single `copyPages` call. Metadata is carried over from whichever source the first page references.
 
 All page ops apply to the in-memory edit graph, not the source file, until the user saves. Sidecar (`.preview-edits.json`) for crash recovery is still planned.
 
@@ -262,10 +267,16 @@ window.pdf = {
   getText(id, pageIndex): Promise<string | null>,
   findMatchRects(id, pageIndex, query): Promise<PageRect[] | null>,
 
-  // Write (M2/M2.1)
-  save(id, pages: VirtualPage[]): Promise<{ ok: true } | { ok: false; error: string }>,
-  saveAs(id, pages, defaultName): Promise<{ ok: true; path } | { ok: false; error? }>,
+  // Write (M2 / M2.1 / M2.2 — multi-source)
+  save(sources: Record<string, string>, destId, pages: VirtualPage[]):
+    Promise<{ ok: true } | { ok: false; error: string }>,
+  saveAs(sources, pages, defaultName):
+    Promise<{ ok: true; path } | { ok: false; error? }>,
   setDirty(dirty): void,
+
+  // Secondary sources (Insert + Merge)
+  registerSource(path): Promise<SourceInfo>,
+  pickFiles(multi: boolean): Promise<string[]>,
 
   // File / window
   close(id): void,
@@ -273,7 +284,10 @@ window.pdf = {
   openPath(path): void,
   pathForDroppedFile(file): string,
   onDocAssigned(cb): () => void,
-  onMenu('save' | 'saveAs' | 'extractSelection', cb): () => void,
+  onMenu(
+    'save' | 'saveAs' | 'extractSelection' | 'insertPages' | 'mergePdfs',
+    cb
+  ): () => void,
 }
 
 // Planned for M3+
@@ -281,10 +295,6 @@ window.pdf = {
   // Sidecar (crash recovery)
   pushOps(ops: EditOp[]): Promise<void>,
   getSidecar(): Promise<Sidecar>,
-
-  // Multi-source page ops
-  insertFrom(srcPath, atIndex, srcPages?): Promise<void>,
-  mergeMany(paths): Promise<DocId>,
 
   // Annotations / forms (M3 / M4)
   exportFlattened(path): Promise<void>,
@@ -318,7 +328,7 @@ window.pdf = {
 
 1. **M0 — Skeleton** ✅: Electron + Vite + React boilerplate, 1-window-per-doc with blank-window reuse, PDFium-WASM rendering to `<canvas>`, custom toolbar (no browser chrome), AppImage builds, drag-drop / double-click open.
 2. **M1 — Viewport + nav** ✅: virtualized rendering, thumbnail rail, page sync, zoom modes, Ctrl+F search with bbox highlights, full keyboard nav, system font mapper.
-3. **M2 — Page ops** ◐: rotate ✅, delete ✅, drag-reorder ✅, multi-select ✅, undo/redo with snapshot stacks ✅, dirty indicator ✅, Save / Save As / Export Selection As ✅ via pdf-lib bake. Insert-from-other-PDF and Merge: deferred (need multi-source `VirtualPage`). Sidecar crash recovery: deferred.
+3. **M2 — Page ops** ✅: rotate ✅, delete ✅, drag-reorder ✅, multi-select ✅, undo/redo with snapshot stacks ✅, dirty indicator ✅, Save / Save As / Export Selection As ✅ via pdf-lib bake, Insert-from-other-PDF ✅, Merge ✅ (both via multi-source `VirtualPage {sourceId, ...}` and a secondary-source registry in main). Sidecar crash recovery: deferred to M6.
 4. **M3 — Annotations**: overlay canvas, shapes, sticky notes, text boxes, write into PDF as standard annotations. Will reuse the existing undo/redo machinery.
 5. **M4 — Forms**: AcroForm read-back on save; XFA fallback path with banner.
 6. **M5 — Print**: CUPS pipeline, custom dialog, status.

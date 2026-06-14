@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   applyDelete,
+  applyInsert,
   applyMove,
   applyRotate,
   identityPages,
@@ -10,6 +11,8 @@ import {
   rotatedSize,
   type VirtualPage
 } from '../src/shared/edit'
+
+const SID = '/x/a.pdf'
 
 describe('normalizeRotation', () => {
   it('wraps positive', () => {
@@ -38,47 +41,56 @@ describe('rotatedSize', () => {
 })
 
 describe('identityPages', () => {
-  it('produces N pages with sourceIndex 0..N-1', () => {
-    const p = identityPages(4)
+  it('produces N pages carrying sourceId', () => {
+    const p = identityPages(SID, 4)
     expect(p).toHaveLength(4)
     expect(p.map((x) => x.sourceIndex)).toEqual([0, 1, 2, 3])
+    expect(p.every((x) => x.sourceId === SID)).toBe(true)
     expect(p.every((x) => x.rotation === 0)).toBe(true)
   })
   it('empty for 0', () => {
-    expect(identityPages(0)).toEqual([])
+    expect(identityPages(SID, 0)).toEqual([])
   })
 })
 
 describe('pagesEqual', () => {
   it('detects equality', () => {
-    expect(pagesEqual(identityPages(3), identityPages(3))).toBe(true)
+    expect(pagesEqual(identityPages(SID, 3), identityPages(SID, 3))).toBe(true)
   })
   it('detects length diff', () => {
-    expect(pagesEqual(identityPages(2), identityPages(3))).toBe(false)
+    expect(pagesEqual(identityPages(SID, 2), identityPages(SID, 3))).toBe(false)
+  })
+  it('detects sourceId diff', () => {
+    const a = identityPages(SID, 1)
+    const b = [{ sourceId: '/y/b.pdf', sourceIndex: 0, rotation: 0 as const }]
+    expect(pagesEqual(a, b)).toBe(false)
   })
   it('detects rotation diff', () => {
-    const a = identityPages(2)
-    const b = [{ sourceIndex: 0, rotation: 90 as const }, { sourceIndex: 1, rotation: 0 as const }]
+    const a = identityPages(SID, 2)
+    const b: VirtualPage[] = [
+      { sourceId: SID, sourceIndex: 0, rotation: 90 },
+      { sourceId: SID, sourceIndex: 1, rotation: 0 }
+    ]
     expect(pagesEqual(a, b)).toBe(false)
   })
 })
 
 describe('applyRotate', () => {
   it('returns a new array (immutability)', () => {
-    const a = identityPages(3)
+    const a = identityPages(SID, 3)
     const b = applyRotate(a, [0], 90)
     expect(b).not.toBe(a)
-    expect(a[0].rotation).toBe(0) // input unchanged
+    expect(a[0].rotation).toBe(0)
   })
   it('only rotates the listed indices', () => {
-    const a = identityPages(3)
+    const a = identityPages(SID, 3)
     const b = applyRotate(a, [0, 2], 90)
     expect(b[0].rotation).toBe(90)
     expect(b[1].rotation).toBe(0)
     expect(b[2].rotation).toBe(90)
   })
   it('cumulates rotation', () => {
-    const a = applyRotate(identityPages(1), [0], 90)
+    const a = applyRotate(identityPages(SID, 1), [0], 90)
     const b = applyRotate(a, [0], 90)
     expect(b[0].rotation).toBe(180)
   })
@@ -86,40 +98,31 @@ describe('applyRotate', () => {
 
 describe('applyDelete', () => {
   it('removes the listed indices', () => {
-    const a = identityPages(4)
+    const a = identityPages(SID, 4)
     const b = applyDelete(a, [1, 3])
     expect(b.map((x) => x.sourceIndex)).toEqual([0, 2])
   })
   it('does not mutate input', () => {
-    const a = identityPages(3)
+    const a = identityPages(SID, 3)
     applyDelete(a, [0])
     expect(a).toHaveLength(3)
   })
 })
 
 describe('applyMove', () => {
-  const a: VirtualPage[] = [
-    { sourceIndex: 0, rotation: 0 },
-    { sourceIndex: 1, rotation: 0 },
-    { sourceIndex: 2, rotation: 0 },
-    { sourceIndex: 3, rotation: 0 },
-    { sourceIndex: 4, rotation: 0 }
-  ]
+  const a: VirtualPage[] = identityPages(SID, 5)
 
   it('moves single page forward', () => {
-    // [A,B,C,D,E] move A to index 2 → [B,A,C,D,E]
     const r = applyMove(a, [0], 2)
     expect(r.map((p) => p.sourceIndex)).toEqual([1, 0, 2, 3, 4])
   })
 
   it('moves single page backward', () => {
-    // [A,B,C,D,E] move D to index 0 → [D,A,B,C,E]
     const r = applyMove(a, [3], 0)
     expect(r.map((p) => p.sourceIndex)).toEqual([3, 0, 1, 2, 4])
   })
 
   it('moves multiple non-contiguous to insertion point', () => {
-    // [A,B,C,D,E] move A,C to insertion 4 → [B,D,A,C,E]
     const r = applyMove(a, [0, 2], 4)
     expect(r.map((p) => p.sourceIndex)).toEqual([1, 3, 0, 2, 4])
   })
@@ -156,16 +159,47 @@ describe('applyMove', () => {
 
 describe('moveIndexMap', () => {
   it('maps single move correctly', () => {
-    // 5 pages, move index 0 to insertion 3 → [B,C,A,D,E]
-    // Original 0 lands at 2; original 1 → 0; original 2 → 1; original 3 → 3; original 4 → 4
     const m = moveIndexMap(5, [0], 3)
     expect(m).toEqual([2, 0, 1, 3, 4])
   })
-
   it('maps multi-move correctly', () => {
-    // 5 pages, move [0,2] to insertion 4 → [B,D,A,C,E]
-    // A(0)→2, B(1)→0, C(2)→3, D(3)→1, E(4)→4
     const m = moveIndexMap(5, [0, 2], 4)
     expect(m).toEqual([2, 0, 3, 1, 4])
+  })
+})
+
+describe('applyInsert', () => {
+  const a = identityPages(SID, 3)
+  const inserts = identityPages('/y/b.pdf', 2)
+
+  it('inserts at the beginning', () => {
+    const r = applyInsert(a, inserts, 0)
+    expect(r.map((p) => p.sourceId)).toEqual(['/y/b.pdf', '/y/b.pdf', SID, SID, SID])
+  })
+
+  it('inserts in the middle', () => {
+    const r = applyInsert(a, inserts, 2)
+    expect(r.map((p) => p.sourceId)).toEqual([SID, SID, '/y/b.pdf', '/y/b.pdf', SID])
+  })
+
+  it('inserts at the end', () => {
+    const r = applyInsert(a, inserts, 3)
+    expect(r.map((p) => p.sourceId)).toEqual([SID, SID, SID, '/y/b.pdf', '/y/b.pdf'])
+  })
+
+  it('clamps target out of range', () => {
+    const r1 = applyInsert(a, inserts, -1)
+    expect(r1).toHaveLength(5)
+    expect(r1[0].sourceId).toBe('/y/b.pdf')
+    const r2 = applyInsert(a, inserts, 99)
+    expect(r2[r2.length - 1].sourceId).toBe('/y/b.pdf')
+  })
+
+  it('preserves both arrays', () => {
+    const r = applyInsert(a, inserts, 1)
+    expect(a).toHaveLength(3)
+    expect(inserts).toHaveLength(2)
+    expect(r).toHaveLength(5)
+    expect(r).not.toBe(a)
   })
 })

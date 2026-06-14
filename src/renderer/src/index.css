@@ -217,6 +217,8 @@ html, body, #root {
 .thumb.drop-above::before { top: -2px; }
 .thumb.drop-below::after  { bottom: -2px; }
 .thumb { position: relative; }
+.thumb.inserted canvas { box-shadow: 0 0 0 2px #56b inset; }
+.thumb.inserted .thumb-label { color: #9ad; }
 
 .viewport-scroll {
   flex: 1;

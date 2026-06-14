@@ -10,35 +10,36 @@ import { PDFDocument, StandardFonts, degrees } from 'pdf-lib'
 import { saveDoc } from '../src/main/save'
 
 let workDir: string
-let inputPath: string
+let inputA: string
+let inputB: string
 
-async function makeMultiPagePdf(): Promise<Uint8Array> {
+async function makeMultiPagePdf(label: string, count: number): Promise<Uint8Array> {
   const doc = await PDFDocument.create()
   const font = await doc.embedFont(StandardFonts.Helvetica)
-  for (let i = 0; i < 4; i++) {
+  for (let i = 0; i < count; i++) {
     const page = doc.addPage([400, 300])
-    page.drawText(`Page ${i + 1}`, { x: 50, y: 200, size: 24, font })
+    page.drawText(`${label} ${i + 1}`, { x: 50, y: 200, size: 24, font })
   }
-  // Pre-rotate page index 2 by 90° to verify we preserve source rotation when
-  // composing with our delta.
   doc.getPage(2).setRotation(degrees(90))
   return doc.save()
 }
 
 beforeAll(async () => {
   workDir = await mkdtemp(join(tmpdir(), 'preview-save-'))
-  inputPath = join(workDir, 'input.pdf')
-  await writeFile(inputPath, await makeMultiPagePdf())
+  inputA = join(workDir, 'inputA.pdf')
+  inputB = join(workDir, 'inputB.pdf')
+  await writeFile(inputA, await makeMultiPagePdf('A', 4))
+  await writeFile(inputB, await makeMultiPagePdf('B', 3))
 })
 
-describe('saveDoc', () => {
+describe('saveDoc (single source)', () => {
   it('writes a 4-page identity copy', async () => {
     const out = join(workDir, 'identity.pdf')
-    await saveDoc(inputPath, out, [
-      { sourceIndex: 0, rotation: 0 },
-      { sourceIndex: 1, rotation: 0 },
-      { sourceIndex: 2, rotation: 0 },
-      { sourceIndex: 3, rotation: 0 }
+    await saveDoc({ [inputA]: inputA }, out, [
+      { sourceId: inputA, sourceIndex: 0, rotation: 0 },
+      { sourceId: inputA, sourceIndex: 1, rotation: 0 },
+      { sourceId: inputA, sourceIndex: 2, rotation: 0 },
+      { sourceId: inputA, sourceIndex: 3, rotation: 0 }
     ])
     const bytes = await readFile(out)
     const doc = await PDFDocument.load(bytes)
@@ -47,9 +48,9 @@ describe('saveDoc', () => {
 
   it('deletes pages by omitting them from the spec', async () => {
     const out = join(workDir, 'deleted.pdf')
-    await saveDoc(inputPath, out, [
-      { sourceIndex: 0, rotation: 0 },
-      { sourceIndex: 3, rotation: 0 }
+    await saveDoc({ [inputA]: inputA }, out, [
+      { sourceId: inputA, sourceIndex: 0, rotation: 0 },
+      { sourceId: inputA, sourceIndex: 3, rotation: 0 }
     ])
     const doc = await PDFDocument.load(await readFile(out))
     expect(doc.getPageCount()).toBe(2)
@@ -57,25 +58,23 @@ describe('saveDoc', () => {
 
   it('reorders pages by changing source-index order', async () => {
     const out = join(workDir, 'reordered.pdf')
-    await saveDoc(inputPath, out, [
-      { sourceIndex: 3, rotation: 0 },
-      { sourceIndex: 0, rotation: 0 },
-      { sourceIndex: 1, rotation: 0 },
-      { sourceIndex: 2, rotation: 0 }
+    await saveDoc({ [inputA]: inputA }, out, [
+      { sourceId: inputA, sourceIndex: 3, rotation: 0 },
+      { sourceId: inputA, sourceIndex: 0, rotation: 0 },
+      { sourceId: inputA, sourceIndex: 1, rotation: 0 },
+      { sourceId: inputA, sourceIndex: 2, rotation: 0 }
     ])
     const doc = await PDFDocument.load(await readFile(out))
     expect(doc.getPageCount()).toBe(4)
-    // We can't read text directly via pdf-lib, but the page count + a
-    // successful load are a meaningful smoke test for reorder.
   })
 
   it('records absolute rotation = src + delta', async () => {
     const out = join(workDir, 'rotated.pdf')
-    await saveDoc(inputPath, out, [
-      { sourceIndex: 0, rotation: 90 }, // src 0  + 90  = 90
-      { sourceIndex: 1, rotation: 180 }, // src 0  + 180 = 180
-      { sourceIndex: 2, rotation: 90 }, // src 90 + 90  = 180
-      { sourceIndex: 3, rotation: 0 }
+    await saveDoc({ [inputA]: inputA }, out, [
+      { sourceId: inputA, sourceIndex: 0, rotation: 90 },
+      { sourceId: inputA, sourceIndex: 1, rotation: 180 },
+      { sourceId: inputA, sourceIndex: 2, rotation: 90 },
+      { sourceId: inputA, sourceIndex: 3, rotation: 0 }
     ])
     const doc = await PDFDocument.load(await readFile(out))
     expect(doc.getPage(0).getRotation().angle).toBe(90)
@@ -85,18 +84,57 @@ describe('saveDoc', () => {
   })
 
   it('survives a no-op when source equals dest path', async () => {
-    // Round-trip in place using a copy
     const inPlace = join(workDir, 'inplace.pdf')
-    await writeFile(inPlace, await readFile(inputPath))
-    await saveDoc(inPlace, inPlace, [
-      { sourceIndex: 0, rotation: 0 },
-      { sourceIndex: 1, rotation: 0 }
+    await writeFile(inPlace, await readFile(inputA))
+    await saveDoc({ [inPlace]: inPlace }, inPlace, [
+      { sourceId: inPlace, sourceIndex: 0, rotation: 0 },
+      { sourceId: inPlace, sourceIndex: 1, rotation: 0 }
     ])
     const doc = await PDFDocument.load(await readFile(inPlace))
     expect(doc.getPageCount()).toBe(2)
   })
+})
+
+describe('saveDoc (multi-source)', () => {
+  it('merges pages from two source PDFs in order', async () => {
+    const out = join(workDir, 'merged.pdf')
+    await saveDoc({ [inputA]: inputA, [inputB]: inputB }, out, [
+      { sourceId: inputA, sourceIndex: 0, rotation: 0 },
+      { sourceId: inputB, sourceIndex: 0, rotation: 0 },
+      { sourceId: inputA, sourceIndex: 1, rotation: 0 },
+      { sourceId: inputB, sourceIndex: 2, rotation: 0 }
+    ])
+    const doc = await PDFDocument.load(await readFile(out))
+    expect(doc.getPageCount()).toBe(4)
+  })
+
+  it('interleaved sources still apply rotation correctly', async () => {
+    const out = join(workDir, 'interleaved.pdf')
+    await saveDoc({ [inputA]: inputA, [inputB]: inputB }, out, [
+      { sourceId: inputB, sourceIndex: 0, rotation: 90 },
+      { sourceId: inputA, sourceIndex: 2, rotation: 90 } // src page 2 already has 90 rotation → absolute 180
+    ])
+    const doc = await PDFDocument.load(await readFile(out))
+    expect(doc.getPageCount()).toBe(2)
+    expect(doc.getPage(0).getRotation().angle).toBe(90)
+    expect(doc.getPage(1).getRotation().angle).toBe(180)
+  })
+
+  it('rejects pages referencing an unregistered source', async () => {
+    const out = join(workDir, 'bad.pdf')
+    await expect(
+      saveDoc({ [inputA]: inputA }, out, [
+        { sourceId: inputA, sourceIndex: 0, rotation: 0 },
+        { sourceId: inputB, sourceIndex: 0, rotation: 0 }
+      ])
+    ).rejects.toThrow(/No path registered/)
+  })
+})
+
+describe('saveDoc cleanup', () => {
 
   it('cleanup', async () => {
     await rm(workDir, { recursive: true, force: true })
   })
 })
+

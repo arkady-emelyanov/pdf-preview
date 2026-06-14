@@ -5,7 +5,7 @@ import { rotatedSize } from '../../shared/edit'
 const THUMB_WIDTH = 120
 
 function Thumb({
-  docId,
+  sourceId,
   virtualIndex,
   sourceIndex,
   rotation,
@@ -13,6 +13,7 @@ function Thumb({
   pageHeight,
   active,
   selected,
+  fromSecondary,
   dropIndicator,
   onClick,
   onMouseDown,
@@ -22,7 +23,7 @@ function Thumb({
   onDrop,
   onDragEnd
 }: {
-  docId: string
+  sourceId: string
   virtualIndex: number
   sourceIndex: number
   rotation: number
@@ -30,6 +31,7 @@ function Thumb({
   pageHeight: number
   active: boolean
   selected: boolean
+  fromSecondary: boolean
   dropIndicator: 'above' | 'below' | null
   onClick: (e: React.MouseEvent) => void
   onMouseDown: (e: React.MouseEvent) => void
@@ -49,7 +51,7 @@ function Thumb({
         if (entries[0]?.isIntersecting) {
           io.disconnect()
           ;(async () => {
-            const res = await window.pdf.renderPage(docId, sourceIndex, 0.25, rotation)
+            const res = await window.pdf.renderPage(sourceId, sourceIndex, 0.25, rotation)
             if (cancelled || !res || !ref.current) return
             ref.current.width = res.width
             ref.current.height = res.height
@@ -70,7 +72,7 @@ function Thumb({
       cancelled = true
       io.disconnect()
     }
-  }, [docId, sourceIndex, rotation])
+  }, [sourceId, sourceIndex, rotation])
 
   useEffect(() => {
     if (active && containerRef.current) {
@@ -85,8 +87,8 @@ function Thumb({
     <div
       ref={containerRef}
       className={`thumb${active ? ' active' : ''}${selected ? ' selected' : ''}${
-        dropIndicator ? ` drop-${dropIndicator}` : ''
-      }`}
+        fromSecondary ? ' inserted' : ''
+      }${dropIndicator ? ` drop-${dropIndicator}` : ''}`}
       draggable
       onClick={onClick}
       onMouseDown={onMouseDown}
@@ -103,9 +105,7 @@ function Thumb({
 }
 
 interface DragState {
-  /** Indices being dragged (selection if dragged item was in it, else just this index). */
   draggingIndices: number[]
-  /** Target virtual index + 'above' or 'below' (translates to insertion point). */
   hover: { index: number; side: 'above' | 'below' } | null
 }
 
@@ -121,6 +121,7 @@ export function Thumbnails(): JSX.Element | null {
   const selectRange = useStore((s) => s.selectRange)
   const setCurrentPage = useStore((s) => s.setCurrentPage)
   const movePages = useStore((s) => s.movePages)
+  const sourceSize = useStore((s) => s.sourceSize)
   const anchorRef = useRef<number>(0)
   const [drag, setDrag] = useState<DragState | null>(null)
 
@@ -129,7 +130,7 @@ export function Thumbnails(): JSX.Element | null {
   return (
     <div className="thumbnails">
       {pages.map((vp, i) => {
-        const size = rotatedSize(doc.pageSizes[vp.sourceIndex], vp.rotation)
+        const size = rotatedSize(sourceSize(vp.sourceId, vp.sourceIndex), vp.rotation)
         const onClick = (e: React.MouseEvent): void => {
           if (e.shiftKey) {
             selectRange(anchorRef.current, i)
@@ -147,14 +148,11 @@ export function Thumbnails(): JSX.Element | null {
           if (e.shiftKey) e.preventDefault()
         }
         const onDragStart = (e: React.DragEvent): void => {
-          // If the dragged item is in the current selection, drag all selected;
-          // otherwise drag just this item (and switch selection to it).
           const inSel = selection.has(i)
           const indices = inSel ? [...selection].sort((a, b) => a - b) : [i]
           if (!inSel) selectOnly(i)
           setDrag({ draggingIndices: indices, hover: null })
           e.dataTransfer.effectAllowed = 'move'
-          // Required to actually start a drag in some browsers.
           e.dataTransfer.setData('text/plain', String(i))
         }
         const onDragOver = (e: React.DragEvent): void => {
@@ -166,7 +164,7 @@ export function Thumbnails(): JSX.Element | null {
           setDrag((d) => (d ? { ...d, hover: { index: i, side } } : d))
         }
         const onDragLeave = (_e: React.DragEvent): void => {
-          // Keep hover state — it gets overwritten by the next thumb's dragover.
+          // intentionally left blank; replaced by next thumb's dragover
         }
         const onDrop = (e: React.DragEvent): void => {
           e.preventDefault()
@@ -182,8 +180,8 @@ export function Thumbnails(): JSX.Element | null {
         const isHovered = drag?.hover?.index === i
         return (
           <Thumb
-            key={`${vp.sourceIndex}:${i}`}
-            docId={doc.id}
+            key={`${vp.sourceId}:${vp.sourceIndex}:${i}`}
+            sourceId={vp.sourceId}
             virtualIndex={i}
             sourceIndex={vp.sourceIndex}
             rotation={vp.rotation}
@@ -191,6 +189,7 @@ export function Thumbnails(): JSX.Element | null {
             pageHeight={size.height}
             active={i === currentPage}
             selected={selection.has(i)}
+            fromSecondary={vp.sourceId !== doc.primary.sourceId}
             dropIndicator={isHovered ? (drag!.hover!.side as 'above' | 'below') : null}
             onClick={onClick}
             onMouseDown={onMouseDown}

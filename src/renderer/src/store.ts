@@ -1,7 +1,8 @@
 import { create } from 'zustand'
-import type { DocInfo, PageRect } from '../../shared/ipc'
+import type { DocInfo, PageRect, SourceInfo } from '../../shared/ipc'
 import {
   applyDelete,
+  applyInsert,
   applyMove,
   applyRotate,
   identityPages,
@@ -24,12 +25,13 @@ const UNDO_LIMIT = 200
 
 interface State {
   doc: DocInfo | null
+  /** All source PDFs registered with this window, keyed by sourceId. */
+  sources: Record<string, SourceInfo>
 
   // Edit graph
   pages: VirtualPage[]
   undoStack: VirtualPage[][]
   redoStack: VirtualPage[][]
-  /** State at last save (or open). Drives the dirty marker. */
   savedPages: VirtualPage[]
   selection: Set<number>
 
@@ -48,6 +50,7 @@ interface State {
 
   // View setters
   setDoc: (d: DocInfo | null) => void
+  registerSource: (s: SourceInfo) => void
   setScale: (s: number) => void
   setZoomMode: (m: ZoomMode) => void
   setCurrentPage: (p: number) => void
@@ -75,6 +78,7 @@ interface State {
   rotateSelection: (delta: number) => void
   deleteSelection: () => void
   movePages: (indices: number[], target: number) => void
+  insertPages: (inserts: VirtualPage[], target: number) => void
 
   // Undo/redo
   undo: () => void
@@ -82,6 +86,10 @@ interface State {
 
   // Save sync
   markSaved: () => void
+
+  // Helpers
+  sourcePaths: () => Record<string, string>
+  sourceSize: (sourceId: string, sourceIndex: number) => { width: number; height: number }
 }
 
 function isDirty(pages: VirtualPage[], saved: VirtualPage[]): boolean {
@@ -90,6 +98,7 @@ function isDirty(pages: VirtualPage[], saved: VirtualPage[]): boolean {
 
 export const useStore = create<State>((set, get) => ({
   doc: null,
+  sources: {},
   pages: [],
   undoStack: [],
   redoStack: [],
@@ -109,9 +118,11 @@ export const useStore = create<State>((set, get) => ({
   jumpRequest: null,
 
   setDoc: (d) => {
-    const pages = d ? identityPages(d.pageCount) : []
+    const pages = d ? identityPages(d.primary.sourceId, d.primary.pageCount) : []
+    const sources: Record<string, SourceInfo> = d ? { [d.primary.sourceId]: d.primary } : {}
     set({
       doc: d,
+      sources,
       pages,
       undoStack: [],
       redoStack: [],
@@ -125,6 +136,8 @@ export const useStore = create<State>((set, get) => ({
     })
     window.pdf.setDirty(false)
   },
+  registerSource: (s) =>
+    set((st) => ({ sources: { ...st.sources, [s.sourceId]: s } })),
   setScale: (s) => set({ scale: s, zoomMode: 'custom' }),
   setZoomMode: (m) => set({ zoomMode: m }),
   setCurrentPage: (p) => set({ currentPage: p }),
@@ -186,7 +199,6 @@ export const useStore = create<State>((set, get) => ({
     if (targets.length === 0 || targets.length >= s.pages.length) return
     const next = applyDelete(s.pages, targets)
     const undoStack = pushUndo(s.undoStack, s.pages)
-    // Move current page so it stays valid; shift selection clear.
     const minDel = Math.min(...targets)
     const newCurrent = Math.max(0, Math.min(next.length - 1, minDel))
     set({
@@ -222,6 +234,23 @@ export const useStore = create<State>((set, get) => ({
     window.pdf.setDirty(isDirty(next, s.savedPages))
   },
 
+  insertPages: (inserts, target) => {
+    const s = get()
+    if (inserts.length === 0) return
+    const next = applyInsert(s.pages, inserts, target)
+    const undoStack = pushUndo(s.undoStack, s.pages)
+    set({
+      pages: next,
+      undoStack,
+      redoStack: [],
+      selection: new Set(
+        Array.from({ length: inserts.length }, (_, i) => target + i)
+      ),
+      currentPage: target
+    })
+    window.pdf.setDirty(isDirty(next, s.savedPages))
+  },
+
   undo: () => {
     const s = get()
     if (s.undoStack.length === 0) return
@@ -246,6 +275,20 @@ export const useStore = create<State>((set, get) => ({
     const s = get()
     set({ savedPages: s.pages })
     window.pdf.setDirty(false)
+  },
+
+  sourcePaths: () => {
+    const s = get()
+    const out: Record<string, string> = {}
+    for (const id of Object.keys(s.sources)) out[id] = id
+    return out
+  },
+
+  sourceSize: (sourceId, sourceIndex) => {
+    const s = get()
+    const src = s.sources[sourceId]
+    if (!src) return { width: 612, height: 792 }
+    return src.pageSizes[sourceIndex] ?? { width: 612, height: 792 }
   }
 }))
 
@@ -255,30 +298,31 @@ function pushUndo(stack: VirtualPage[][], snapshot: VirtualPage[]): VirtualPage[
   return next
 }
 
-export function maxPageWidth(d: DocInfo): number {
-  return d.pageSizes.reduce((m, s) => Math.max(m, s.width), 1)
+/** Virtual-page sizes accounting for rotation, looking up each source. */
+export function virtualPageSizes(
+  pages: VirtualPage[],
+  lookup: (sourceId: string, sourceIndex: number) => { width: number; height: number }
+): { width: number; height: number }[] {
+  return pages.map((vp) => rotatedSize(lookup(vp.sourceId, vp.sourceIndex), vp.rotation))
 }
 
-export function maxPageHeight(d: DocInfo): number {
-  return d.pageSizes.reduce((m, s) => Math.max(m, s.height), 1)
+export function maxPageWidth(sizes: { width: number; height: number }[]): number {
+  return sizes.reduce((m, s) => Math.max(m, s.width), 1)
 }
 
-/** Source page sizes accounting for the edit-graph's rotation. */
-export function virtualPageSizes(d: DocInfo, pages: VirtualPage[]): { width: number; height: number }[] {
-  return pages.map((vp) => rotatedSize(d.pageSizes[vp.sourceIndex], vp.rotation))
+export function maxPageHeight(sizes: { width: number; height: number }[]): number {
+  return sizes.reduce((m, s) => Math.max(m, s.height), 1)
 }
 
 export function computeFittedScale(
-  d: DocInfo,
+  sizes: { width: number; height: number }[],
   mode: ZoomMode,
-  vp: { w: number; h: number },
-  pages?: VirtualPage[]
+  vp: { w: number; h: number }
 ): number | null {
   if (vp.w <= 0 || vp.h <= 0) return null
   const pad = 32
-  const sizes = pages ? virtualPageSizes(d, pages) : d.pageSizes
-  const maxW = sizes.reduce((m, s) => Math.max(m, s.width), 1)
-  const maxH = sizes.reduce((m, s) => Math.max(m, s.height), 1)
+  const maxW = maxPageWidth(sizes)
+  const maxH = maxPageHeight(sizes)
   if (mode === 'fit-width') return (vp.w - pad) / maxW
   if (mode === 'fit-page') {
     const sw = (vp.w - pad) / maxW
@@ -289,5 +333,4 @@ export function computeFittedScale(
   return null
 }
 
-// Re-export for components
 export type { Rotation, VirtualPage }

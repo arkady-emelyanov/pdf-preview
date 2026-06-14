@@ -16,6 +16,7 @@ export function SearchBar(): JSX.Element | null {
   const open = useStore((s) => s.searchOpen)
   const close = useStore((s) => s.closeSearch)
   const doc = useStore((s) => s.doc)
+  const pages = useStore((s) => s.pages)
   const query = useStore((s) => s.searchQuery)
   const setQuery = useStore((s) => s.setSearchQuery)
   const hits = useStore((s) => s.searchHits)
@@ -42,11 +43,26 @@ export function SearchBar(): JSX.Element | null {
     const q = query
     const results: SearchHit[] = []
     const rectsByPage = new Map<number, PageRect[]>()
-    for (let i = 0; i < doc.pageCount; i++) {
-      const text = (await window.pdf.getText(doc.id, i)) ?? ''
+    // Cache per (sourceId|sourceIndex) so virtual pages that reference the
+    // same source page don't trigger duplicate IPC calls.
+    const textCache = new Map<string, string>()
+    const rectCache = new Map<string, PageRect[]>()
+
+    for (let i = 0; i < pages.length; i++) {
+      const vp = pages[i]
+      const key = `${vp.sourceId}|${vp.sourceIndex}`
+      let text = textCache.get(key)
+      if (text === undefined) {
+        text = (await window.pdf.getText(vp.sourceId, vp.sourceIndex)) ?? ''
+        textCache.set(key, text)
+      }
       const idx = text.toLowerCase().indexOf(q.toLowerCase())
       if (idx >= 0) {
-        const rects = (await window.pdf.findMatchRects(doc.id, i, q)) ?? []
+        let rects = rectCache.get(key)
+        if (!rects) {
+          rects = (await window.pdf.findMatchRects(vp.sourceId, vp.sourceIndex, q)) ?? []
+          rectCache.set(key, rects)
+        }
         rectsByPage.set(i, rects)
         results.push({ page: i, preview: makePreview(text, idx, q.length), rects })
       }

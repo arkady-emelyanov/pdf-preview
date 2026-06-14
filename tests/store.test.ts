@@ -7,18 +7,24 @@ import {
   virtualPageSizes
 } from '../src/renderer/src/store'
 import type { DocInfo } from '../src/shared/ipc'
-import { identityPages } from '../src/shared/edit'
+import { identityPages, type VirtualPage } from '../src/shared/edit'
+
+const SID = '/x/doc.pdf'
 
 const doc: DocInfo = {
-  id: '/x/doc.pdf',
-  path: '/x/doc.pdf',
+  id: SID,
+  path: SID,
   name: 'doc.pdf',
-  pageCount: 3,
-  pageSizes: [
-    { width: 595, height: 842 },
-    { width: 612, height: 792 },
-    { width: 200, height: 400 }
-  ]
+  primary: {
+    sourceId: SID,
+    name: 'doc.pdf',
+    pageCount: 3,
+    pageSizes: [
+      { width: 595, height: 842 },
+      { width: 612, height: 792 },
+      { width: 200, height: 400 }
+    ]
+  }
 }
 
 // The store calls window.pdf.setDirty as a side effect on every mutation.
@@ -33,6 +39,7 @@ beforeEach(() => {
   }
   useStore.setState({
     doc: null,
+    sources: {},
     pages: [],
     undoStack: [],
     redoStack: [],
@@ -63,6 +70,8 @@ describe('store: setDoc', () => {
     expect(s.searchCursor).toBe(-1)
     expect(s.pages).toHaveLength(3)
     expect(s.pages.every((p, i) => p.sourceIndex === i && p.rotation === 0)).toBe(true)
+    expect(s.pages.every((p) => p.sourceId === SID)).toBe(true)
+    expect(s.sources[SID]).toBeDefined()
     expect(setDirty).toHaveBeenCalledWith(false)
   })
 })
@@ -113,20 +122,27 @@ describe('store: jumpRequest is consumable', () => {
   })
 })
 
+function lookup(_id: string, idx: number): { width: number; height: number } {
+  return doc.primary.pageSizes[idx]
+}
+
 describe('layout helpers', () => {
   it('maxPageWidth picks the largest', () => {
-    expect(maxPageWidth(doc)).toBe(612)
+    expect(maxPageWidth(doc.primary.pageSizes)).toBe(612)
   })
   it('maxPageHeight picks the largest', () => {
-    expect(maxPageHeight(doc)).toBe(842)
+    expect(maxPageHeight(doc.primary.pageSizes)).toBe(842)
   })
   it('virtualPageSizes swaps width/height for 90/270 rotation', () => {
-    const sizes = virtualPageSizes(doc, [
-      { sourceIndex: 0, rotation: 0 },
-      { sourceIndex: 0, rotation: 90 },
-      { sourceIndex: 0, rotation: 180 },
-      { sourceIndex: 0, rotation: 270 }
-    ])
+    const sizes = virtualPageSizes(
+      [
+        { sourceId: SID, sourceIndex: 0, rotation: 0 },
+        { sourceId: SID, sourceIndex: 0, rotation: 90 },
+        { sourceId: SID, sourceIndex: 0, rotation: 180 },
+        { sourceId: SID, sourceIndex: 0, rotation: 270 }
+      ] as VirtualPage[],
+      lookup
+    )
     expect(sizes[0]).toEqual({ width: 595, height: 842 })
     expect(sizes[1]).toEqual({ width: 842, height: 595 })
     expect(sizes[2]).toEqual({ width: 595, height: 842 })
@@ -135,38 +151,40 @@ describe('layout helpers', () => {
 })
 
 describe('computeFittedScale', () => {
+  const sizes = doc.primary.pageSizes
   it('returns null for zero viewport', () => {
-    expect(computeFittedScale(doc, 'fit-width', { w: 0, h: 0 })).toBeNull()
+    expect(computeFittedScale(sizes, 'fit-width', { w: 0, h: 0 })).toBeNull()
   })
 
   it('actual mode returns 1', () => {
-    expect(computeFittedScale(doc, 'actual', { w: 1000, h: 1000 })).toBe(1)
+    expect(computeFittedScale(sizes, 'actual', { w: 1000, h: 1000 })).toBe(1)
   })
 
-  it('custom mode returns null (caller keeps current scale)', () => {
-    expect(computeFittedScale(doc, 'custom', { w: 1000, h: 1000 })).toBeNull()
+  it('custom mode returns null', () => {
+    expect(computeFittedScale(sizes, 'custom', { w: 1000, h: 1000 })).toBeNull()
   })
 
   it('fit-width scales by widest page minus padding', () => {
-    const s = computeFittedScale(doc, 'fit-width', { w: 1000, h: 1000 })
+    const s = computeFittedScale(sizes, 'fit-width', { w: 1000, h: 1000 })
     expect(s).toBeCloseTo((1000 - 32) / 612, 3)
   })
 
   it('fit-page picks smaller of width and height ratios', () => {
-    const s = computeFittedScale(doc, 'fit-page', { w: 1000, h: 500 })
+    const s = computeFittedScale(sizes, 'fit-page', { w: 1000, h: 500 })
     const sw = (1000 - 32) / 612
     const sh = (500 - 32) / 842
     expect(s).toBeCloseTo(Math.min(sw, sh), 3)
   })
 
-  it('honors rotated page sizes when pages are passed', () => {
-    // After rotating page 0 to 90°, its width = 842 (was its height).
-    const pages = [
-      { sourceIndex: 0 as number, rotation: 90 as const },
-      { sourceIndex: 2 as number, rotation: 0 as const }
+  it('honors rotated page sizes when virtualPageSizes is used', () => {
+    const pages: VirtualPage[] = [
+      { sourceId: SID, sourceIndex: 0, rotation: 90 },
+      { sourceId: SID, sourceIndex: 2, rotation: 0 }
     ]
-    const s = computeFittedScale(doc, 'fit-width', { w: 1000, h: 1000 }, pages)
-    // Widest is now 842 (rotated page 0).
+    const s = computeFittedScale(virtualPageSizes(pages, lookup), 'fit-width', {
+      w: 1000,
+      h: 1000
+    })
     expect(s).toBeCloseTo((1000 - 32) / 842, 3)
   })
 })
@@ -218,10 +236,23 @@ describe('store: edit ops', () => {
   })
 
   it('deleteSelection refuses to delete the last page', () => {
-    useStore.setState({ pages: identityPages(1) })
+    useStore.setState({ pages: identityPages(SID, 1) })
     useStore.getState().setSelection(new Set([0]))
     useStore.getState().deleteSelection()
     expect(useStore.getState().pages).toHaveLength(1)
+  })
+
+  it('insertPages adds at target and selects the inserts', () => {
+    const api = useStore.getState()
+    const inserts: VirtualPage[] = identityPages('/y/b.pdf', 2)
+    api.insertPages(inserts, 1)
+    const s = useStore.getState()
+    expect(s.pages).toHaveLength(5)
+    expect(s.pages[1].sourceId).toBe('/y/b.pdf')
+    expect(s.pages[2].sourceId).toBe('/y/b.pdf')
+    expect([...s.selection].sort()).toEqual([1, 2])
+    expect(s.currentPage).toBe(1)
+    expect(setDirty).toHaveBeenLastCalledWith(true)
   })
 
   it('undo restores prior snapshot; redo replays', () => {

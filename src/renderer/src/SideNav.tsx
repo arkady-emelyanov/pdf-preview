@@ -2,12 +2,13 @@ import { useStore } from './store'
 
 export function SideNav(): JSX.Element | null {
   const doc = useStore((s) => s.doc)
+  const pages = useStore((s) => s.pages)
   const currentPage = useStore((s) => s.currentPage)
   const requestJump = useStore((s) => s.requestJump)
 
   if (!doc) return null
   const canPrev = currentPage > 0
-  const canNext = currentPage < doc.pageCount - 1
+  const canNext = currentPage < pages.length - 1
 
   return (
     <>

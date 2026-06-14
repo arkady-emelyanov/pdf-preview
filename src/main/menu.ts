@@ -36,6 +36,9 @@ export function buildMenu(): void {
           click: () => send('menu:extractSelection')
         },
         { type: 'separator' },
+        { label: 'Insert Pages from PDF…', click: () => send('menu:insertPages') },
+        { label: 'Merge PDFs…', click: () => send('menu:mergePdfs') },
+        { type: 'separator' },
         { role: 'close', label: 'Close Window' },
         { role: 'quit' }
       ]

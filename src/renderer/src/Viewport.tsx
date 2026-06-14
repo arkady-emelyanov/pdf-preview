@@ -8,6 +8,7 @@ const BUFFER = 2
 export function Viewport(): JSX.Element {
   const doc = useStore((s) => s.doc)
   const pages = useStore((s) => s.pages)
+  const sources = useStore((s) => s.sources)
   const scale = useStore((s) => s.scale)
   const zoomMode = useStore((s) => s.zoomMode)
   const setCurrentPage = useStore((s) => s.setCurrentPage)
@@ -15,6 +16,7 @@ export function Viewport(): JSX.Element {
   const jumpRequest = useStore((s) => s.jumpRequest)
   const consumeJump = useStore((s) => s.consumeJump)
   const highlightsByPage = useStore((s) => s.highlightsByPage)
+  const sourceSize = useStore((s) => s.sourceSize)
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const [visibleSet, setVisibleSet] = useState<Set<number>>(new Set([0]))
@@ -33,15 +35,16 @@ export function Viewport(): JSX.Element {
   const vpSize = useStore((s) => s.viewportSize)
   useEffect(() => {
     if (!doc || zoomMode === 'custom') return
-    const s = computeFittedScale(doc, zoomMode, vpSize, pages)
+    const sizes = virtualPageSizes(pages, sourceSize)
+    const s = computeFittedScale(sizes, zoomMode, vpSize)
     if (s && Math.abs(s - scale) > 0.001) {
       useStore.setState({ scale: s })
     }
-  }, [doc, zoomMode, vpSize, scale, pages])
+  }, [doc, zoomMode, vpSize, scale, pages, sources, sourceSize])
 
   const layout = useMemo(() => {
     if (!doc || pages.length === 0) return null
-    const sizes = virtualPageSizes(doc, pages)
+    const sizes = virtualPageSizes(pages, sourceSize)
     let y = PAGE_GAP
     const tops: number[] = []
     const scaled = sizes.map((sz) => {
@@ -52,7 +55,9 @@ export function Viewport(): JSX.Element {
       return { w, h }
     })
     return { tops, sizes: scaled, totalHeight: y }
-  }, [doc, pages, scale])
+    // sources participates so layout recomputes when a new source registers
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [doc, pages, scale, sources])
 
   useEffect(() => {
     const el = scrollRef.current
@@ -112,10 +117,9 @@ export function Viewport(): JSX.Element {
       <div className="pages-spacer" style={{ height: layout.totalHeight }}>
         {pages.map((vp, i) => {
           const sz = layout.sizes[i]
-          // For search highlights we key by SOURCE index (search ran on source).
           return (
             <div
-              key={`${vp.sourceIndex}:${i}`}
+              key={`${vp.sourceId}:${vp.sourceIndex}:${i}`}
               className="page-row"
               style={{
                 position: 'absolute',
@@ -127,14 +131,14 @@ export function Viewport(): JSX.Element {
               }}
             >
               <PdfPage
-                docId={doc.id}
+                sourceId={vp.sourceId}
                 sourceIndex={vp.sourceIndex}
                 rotation={vp.rotation}
                 scale={scale}
                 expectedWidth={sz.w}
                 expectedHeight={sz.h}
                 visible={visibleSet.has(i)}
-                highlights={highlightsByPage.get(vp.sourceIndex)}
+                highlights={highlightsByPage.get(i)}
               />
             </div>
           )

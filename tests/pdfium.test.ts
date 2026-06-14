@@ -63,7 +63,6 @@ describe('pdfium integration', () => {
   it('renderPage produces non-uniform output (text was actually drawn)', async () => {
     const r = await renderPage(id, 0, 2)
     expect(r).not.toBeNull()
-    // At least one pixel must differ from the white background.
     const data = r!.data
     let hasContent = false
     for (let i = 0; i < data.length; i += 4) {
@@ -73,6 +72,14 @@ describe('pdfium integration', () => {
       }
     }
     expect(hasContent).toBe(true)
+  })
+
+  it('renderPage with 90° rotation swaps output dimensions', async () => {
+    const r = await renderPage(id, 0, 1, 90)
+    expect(r).not.toBeNull()
+    // Page 0 is 300x200; rotated 90° should be 200x300.
+    expect(r!.width).toBe(200)
+    expect(r!.height).toBe(300)
   })
 
   it('getPageText extracts text we wrote', async () => {

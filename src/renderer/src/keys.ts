@@ -65,7 +65,7 @@ export function useKeyboardShortcuts(): void {
       if (mod && e.key.toLowerCase() === 's') {
         e.preventDefault()
         if (s.pages.length > 0) {
-          const res = await window.pdf.save(doc.id, s.pages)
+          const res = await window.pdf.save(s.sourcePaths(), doc.id, s.pages)
           if (res.ok) s.markSaved()
         }
         return

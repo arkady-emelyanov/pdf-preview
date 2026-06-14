@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { PageRect } from '../../shared/ipc'
 
 interface Props {
-  docId: string
+  sourceId: string
   sourceIndex: number
   rotation: number
   scale: number
@@ -13,7 +13,7 @@ interface Props {
 }
 
 export function PdfPage({
-  docId,
+  sourceId,
   sourceIndex,
   rotation,
   scale,
@@ -29,7 +29,7 @@ export function PdfPage({
     if (!visible) return
     let cancelled = false
     ;(async () => {
-      const res = await window.pdf.renderPage(docId, sourceIndex, scale, rotation)
+      const res = await window.pdf.renderPage(sourceId, sourceIndex, scale, rotation)
       if (cancelled || !res || !canvasRef.current) return
       const canvas = canvasRef.current
       canvas.width = res.width
@@ -46,16 +46,12 @@ export function PdfPage({
     return () => {
       cancelled = true
     }
-  }, [docId, sourceIndex, rotation, scale, visible])
+  }, [sourceId, sourceIndex, rotation, scale, visible])
 
   useEffect(() => {
     setRendered(false)
   }, [scale, rotation])
 
-  // Rotation note: highlights are PDF-page coords for the *unrotated* page.
-  // When the page is rotated for display, the cleanest fix is to either
-  // re-project rects through the rotation, or hide highlights on rotated
-  // pages. For v1 we hide them on rotated pages to avoid misleading boxes.
   const showHighlights = rotation === 0 && highlights && highlights.length > 0
 
   return (

@@ -4,6 +4,7 @@ import { basename } from 'node:path'
 import { dialog } from 'electron'
 import { focusOrCreate, createBlankWindow, pathForWindow } from './windows'
 import { buildMenu, showOpenDialog } from './menu'
+import { realpathSync } from 'node:fs'
 import {
   openDoc,
   closeDoc,
@@ -14,6 +15,14 @@ import {
 } from './pdfium'
 import { saveDoc } from './save'
 import type { VirtualPage } from '../shared/edit'
+
+function canonical(p: string): string {
+  try {
+    return realpathSync(p)
+  } catch {
+    return p
+  }
+}
 
 const initialFiles: string[] = process.argv
   .slice(app.isPackaged ? 1 : 2)
@@ -46,7 +55,38 @@ app.whenReady().then(() => {
     const bytes = await readFile(path)
     const pageCount = await openDoc(path, bytes)
     const pageSizes = getAllPageSizes(path) ?? []
-    return { id: path, path, name: basename(path), pageCount, pageSizes }
+    return {
+      id: path,
+      path,
+      name: basename(path),
+      primary: { sourceId: path, name: basename(path), pageCount, pageSizes }
+    }
+  })
+
+  ipcMain.handle('pdf:registerSource', async (_evt, path: string) => {
+    const id = canonical(path)
+    if (!getAllPageSizes(id)) {
+      const bytes = await readFile(id)
+      await openDoc(id, bytes)
+    }
+    const pageSizes = getAllPageSizes(id) ?? []
+    return {
+      sourceId: id,
+      name: basename(id),
+      pageCount: pageSizes.length,
+      pageSizes
+    }
+  })
+
+  ipcMain.handle('pdf:pickFiles', async (evt, multi: boolean) => {
+    const win = BrowserWindow.fromWebContents(evt.sender) ?? undefined
+    const res = await dialog.showOpenDialog(win as BrowserWindow, {
+      title: multi ? 'Choose PDFs' : 'Choose a PDF',
+      filters: [{ name: 'PDF', extensions: ['pdf'] }],
+      properties: multi ? ['openFile', 'multiSelections'] : ['openFile']
+    })
+    if (res.canceled) return []
+    return res.filePaths
   })
 
   ipcMain.handle(
@@ -84,13 +124,19 @@ app.whenReady().then(() => {
 
   ipcMain.handle(
     'pdf:save',
-    async (evt, id: string, pages: VirtualPage[]): Promise<{ ok: true } | { ok: false; error: string }> => {
+    async (
+      evt,
+      sources: Record<string, string>,
+      destId: string,
+      pages: VirtualPage[]
+    ): Promise<{ ok: true } | { ok: false; error: string }> => {
       const win = BrowserWindow.fromWebContents(evt.sender)
       if (!win) return { ok: false, error: 'no window' }
       try {
-        await saveDoc(id, id, pages)
-        const bytes = await readFile(id)
-        await openDoc(id, bytes)
+        await saveDoc(sources, destId, pages)
+        // Reopen primary so PDFium picks up the new file for renders.
+        const bytes = await readFile(destId)
+        await openDoc(destId, bytes)
         return { ok: true }
       } catch (e) {
         return { ok: false, error: String((e as Error).message ?? e) }
@@ -102,7 +148,7 @@ app.whenReady().then(() => {
     'pdf:saveAs',
     async (
       evt,
-      sourceId: string,
+      sources: Record<string, string>,
       pages: VirtualPage[],
       defaultName: string
     ): Promise<{ ok: true; path: string } | { ok: false; error?: string }> => {
@@ -118,7 +164,7 @@ app.whenReady().then(() => {
         ? res.filePath
         : `${res.filePath}.pdf`
       try {
-        await saveDoc(sourceId, dest, pages)
+        await saveDoc(sources, dest, pages)
         return { ok: true, path: dest }
       } catch (e) {
         return { ok: false, error: String((e as Error).message ?? e) }

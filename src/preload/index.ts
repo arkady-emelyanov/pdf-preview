@@ -1,31 +1,41 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
-import type { DocInfo, PageRect, RenderedPageMsg } from '../shared/ipc'
+import type { DocInfo, PageRect, RenderedPageMsg, SourceInfo } from '../shared/ipc'
 import type { VirtualPage } from '../shared/edit'
+
+type MenuChannel = 'save' | 'saveAs' | 'extractSelection' | 'insertPages' | 'mergePdfs'
 
 const api = {
   openCurrent: (): Promise<DocInfo | null> => ipcRenderer.invoke('pdf:open'),
   renderPage: (
-    id: string,
+    sourceId: string,
     pageIndex: number,
     scale: number,
     rotation = 0
   ): Promise<RenderedPageMsg | null> =>
-    ipcRenderer.invoke('pdf:renderPage', id, pageIndex, scale, rotation),
-  getText: (id: string, pageIndex: number): Promise<string | null> =>
-    ipcRenderer.invoke('pdf:getText', id, pageIndex),
-  findMatchRects: (id: string, pageIndex: number, query: string): Promise<PageRect[] | null> =>
-    ipcRenderer.invoke('pdf:findMatchRects', id, pageIndex, query),
+    ipcRenderer.invoke('pdf:renderPage', sourceId, pageIndex, scale, rotation),
+  getText: (sourceId: string, pageIndex: number): Promise<string | null> =>
+    ipcRenderer.invoke('pdf:getText', sourceId, pageIndex),
+  findMatchRects: (
+    sourceId: string,
+    pageIndex: number,
+    query: string
+  ): Promise<PageRect[] | null> =>
+    ipcRenderer.invoke('pdf:findMatchRects', sourceId, pageIndex, query),
+  registerSource: (path: string): Promise<SourceInfo> =>
+    ipcRenderer.invoke('pdf:registerSource', path),
+  pickFiles: (multi: boolean): Promise<string[]> => ipcRenderer.invoke('pdf:pickFiles', multi),
   save: (
-    id: string,
+    sources: Record<string, string>,
+    destId: string,
     pages: VirtualPage[]
   ): Promise<{ ok: true } | { ok: false; error: string }> =>
-    ipcRenderer.invoke('pdf:save', id, pages),
+    ipcRenderer.invoke('pdf:save', sources, destId, pages),
   saveAs: (
-    id: string,
+    sources: Record<string, string>,
     pages: VirtualPage[],
     defaultName: string
   ): Promise<{ ok: true; path: string } | { ok: false; error?: string }> =>
-    ipcRenderer.invoke('pdf:saveAs', id, pages, defaultName),
+    ipcRenderer.invoke('pdf:saveAs', sources, pages, defaultName),
   setDirty: (dirty: boolean): void => ipcRenderer.send('pdf:setDirty', dirty),
   close: (id: string): void => ipcRenderer.send('pdf:close', id),
   showOpenDialog: (): void => ipcRenderer.send('pdf:showOpenDialog'),
@@ -36,7 +46,7 @@ const api = {
     ipcRenderer.on('pdf:docAssigned', handler)
     return () => ipcRenderer.off('pdf:docAssigned', handler)
   },
-  onMenu: (channel: 'save' | 'saveAs' | 'extractSelection', cb: () => void): (() => void) => {
+  onMenu: (channel: MenuChannel, cb: () => void): (() => void) => {
     const ch = `menu:${channel}`
     const handler = (): void => cb()
     ipcRenderer.on(ch, handler)
