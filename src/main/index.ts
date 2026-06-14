@@ -70,6 +70,12 @@ app.whenReady().then(() => {
     showOpenDialog(win)
   })
 
+  ipcMain.on('pdf:openPath', (_evt, path: string) => {
+    if (typeof path === 'string' && path.toLowerCase().endsWith('.pdf')) {
+      focusOrCreate(path)
+    }
+  })
+
   if (initialFiles.length) initialFiles.forEach(focusOrCreate)
   else createBlankWindow()
 

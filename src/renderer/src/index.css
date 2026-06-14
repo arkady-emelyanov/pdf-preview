@@ -249,4 +249,22 @@ html, body, #root {
   width: 100%;
   color: #888;
   font-size: 14px;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.drop-target {
+  position: fixed;
+  inset: 0;
+  background: rgba(74, 162, 102, 0.15);
+  border: 4px dashed #4a6;
+  pointer-events: none;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  color: #cfe;
+  user-select: none;
 }
