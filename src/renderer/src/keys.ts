@@ -46,12 +46,16 @@ export function useKeyboardShortcuts(): void {
     const handler = async (e: KeyboardEvent): Promise<void> => {
       const target = e.target as HTMLElement | null
       const tag = target?.tagName
-      // Skip when a real text input is focused OR when a contentEditable
-      // surface is focused (covers FormLayer, which forwards keystrokes to
-      // PDFium's AcroForm fill — without this guard 'o' would activate the
-      // oval-annotation tool instead of typing 'o' into the field).
+      // Skip when a real text input is focused, when a contentEditable
+      // surface is focused, OR when the AcroForm-input surface is focused
+      // (FormLayer is a tabindex-focusable div). Without this guard every
+      // keystroke aimed at a form field would also trigger app shortcuts —
+      // Backspace would delete the page, 'o' would flip the oval tool, etc.
       const inField =
-        tag === 'INPUT' || tag === 'TEXTAREA' || !!target?.isContentEditable
+        tag === 'INPUT' ||
+        tag === 'TEXTAREA' ||
+        !!target?.isContentEditable ||
+        !!target?.classList?.contains('form-layer')
       const s = useStore.getState()
       const doc = s.doc
       const mod = e.ctrlKey || e.metaKey
