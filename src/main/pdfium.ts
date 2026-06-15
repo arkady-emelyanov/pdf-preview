@@ -334,32 +334,25 @@ export async function dispatchFormEvent(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const m = mod as any
   switch (ev.kind) {
-    case 'down': {
+    case 'down':
       // PDFium-WASM's form-fill leaves the previously-focused widget sticky
       // when a fresh OnLButtonDown lands on a different widget — UP comes
       // back true but the focus indicator never moves. Force-killing focus
       // first turns every click into a clean "defocus then focus" sequence,
-      // which works around it. The cost is one extra WASM call per click.
+      // which works around it.
       m.FORM_ForceToKillFocus(d.form.formHandle)
       forwardPointerEvent(mod, d.form, pagePtr, 'down', ev.pageX, ev.pageY)
       break
-    }
     case 'up':
-      forwardPointerEvent(mod, d.form, pagePtr, 'up', ev.pageX, ev.pageY)
-      break
     case 'move':
       forwardPointerEvent(mod, d.form, pagePtr, ev.kind, ev.pageX, ev.pageY)
       break
-    case 'char': {
-      const ok = m.FORM_OnChar(d.form.formHandle, pagePtr, ev.charCode, ev.mods)
-      console.log(`[forms] CHAR(${ev.charCode}=${String.fromCharCode(ev.charCode)}) -> ${ok}`)
+    case 'char':
+      forwardChar(mod, d.form, pagePtr, ev.charCode, ev.mods)
       break
-    }
-    case 'keydown': {
-      const ok = m.FORM_OnKeyDown(d.form.formHandle, pagePtr, ev.vkey, ev.mods)
-      console.log(`[forms] KEYDOWN(0x${ev.vkey.toString(16)}) -> ${ok}`)
+    case 'keydown':
+      forwardKeyDown(mod, d.form, pagePtr, ev.vkey, ev.mods)
       break
-    }
   }
 }
 

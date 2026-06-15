@@ -89,6 +89,20 @@ export function FormLayer({
         // already lets non-modifier keys through because the host element
         // is focusable. We just need to forward keystrokes.
         if (e.ctrlKey || e.metaKey || e.altKey) return
+        // Backspace + Delete: PDFium's CPWL_Edit handles these through
+        // FORM_OnChar with their ASCII codes (BS=8, DEL=0x7F), not through
+        // FORM_OnKeyDown. Send them as chars.
+        const asChar = e.key === 'Backspace' ? 8 : e.key === 'Delete' ? 0x7f : null
+        if (asChar !== null) {
+          void window.pdf.formEvent(sourceId, sourceIndex, {
+            kind: 'char',
+            charCode: asChar,
+            mods: 0
+          })
+          bumpFormRevision(sourceId, sourceIndex)
+          e.preventDefault()
+          return
+        }
         const vkey = winVKey(e.key)
         if (vkey !== null) {
           void window.pdf.formEvent(sourceId, sourceIndex, {
