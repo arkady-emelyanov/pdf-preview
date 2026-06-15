@@ -70,13 +70,7 @@ export function FormLayer({
     }
   }, [sourceId, sourceIndex, bumpFormRevision])
 
-  if (!src || !src.hasForm || src.isXFA) {
-    if (src && sourceIndex === 0) {
-      console.log(`[FormLayer] skipping page ${sourceIndex} (hasForm=${src.hasForm} isXFA=${src.isXFA})`)
-    }
-    return null
-  }
-  if (sourceIndex === 0) console.log(`[FormLayer] mounted page ${sourceIndex}`)
+  if (!src || !src.hasForm || src.isXFA) return null
 
   const cssW = pageWidthPt * scale
   const cssH = pageHeightPt * scale
@@ -104,10 +98,7 @@ export function FormLayer({
         width: cssW,
         height: cssH,
         zIndex: 4,
-        // TEMP diagnostic tint: lets us see whether FormLayer actually
-        // occupies the page area. Remove once forms are confirmed working.
-        background: 'rgba(255, 200, 0, 0.10)',
-        outline: '2px dashed rgba(255, 165, 0, 0.6)',
+        outline: 'none',
         cursor: 'default',
         WebkitUserSelect: 'none',
         userSelect: 'none'
@@ -118,7 +109,6 @@ export function FormLayer({
         ;(e.currentTarget as HTMLDivElement).focus()
         const { cx, cy } = localCoords(e)
         const { x, y } = canvasToPagePt(cx, cy)
-        console.log(`[FormLayer] pointerdown css=(${cx.toFixed(1)},${cy.toFixed(1)}) page=(${x.toFixed(2)},${y.toFixed(2)})`)
         void window.pdf.formEvent(sourceId, sourceIndex, { kind: 'down', pageX: x, pageY: y })
         bumpFormRevision(sourceId, sourceIndex)
       }}

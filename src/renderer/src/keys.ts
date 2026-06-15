@@ -44,8 +44,14 @@ export async function copyTextSelection(): Promise<boolean> {
 export function useKeyboardShortcuts(): void {
   useEffect(() => {
     const handler = async (e: KeyboardEvent): Promise<void> => {
-      const tag = (e.target as HTMLElement)?.tagName
-      const inField = tag === 'INPUT' || tag === 'TEXTAREA'
+      const target = e.target as HTMLElement | null
+      const tag = target?.tagName
+      // Skip when a real text input is focused OR when a contentEditable
+      // surface is focused (covers FormLayer, which forwards keystrokes to
+      // PDFium's AcroForm fill — without this guard 'o' would activate the
+      // oval-annotation tool instead of typing 'o' into the field).
+      const inField =
+        tag === 'INPUT' || tag === 'TEXTAREA' || !!target?.isContentEditable
       const s = useStore.getState()
       const doc = s.doc
       const mod = e.ctrlKey || e.metaKey

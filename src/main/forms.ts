@@ -79,7 +79,6 @@ export function initFormState(mod: WrappedPdfiumModule, docPtr: number): FormSta
   // Firefox, Preview, etc. just ignore the XFA and drive the AcroForm —
   // we do the same.
   const isXFA = formType === FORMTYPE_XFA_FULL
-  console.log(`[forms] FPDF_GetFormType=${formType} hasForm=${hasForm} isXFA=${isXFA}`)
   if (!hasForm) {
     return { docPtr, formInfoPtr: 0, formHandle: 0, hasForm: false, isXFA: false }
   }
