@@ -190,6 +190,37 @@ html, body, #root {
 .note-popover-body:focus {
   border-color: #3aa0ff;
 }
+
+.ctx-menu {
+  position: fixed;
+  z-index: 1000;
+  min-width: 160px;
+  background: #2a2a2a;
+  border: 1px solid #444;
+  border-radius: 6px;
+  padding: 4px 0;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  user-select: none;
+}
+.ctx-menu-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  color: #ddd;
+  border: 0;
+  padding: 6px 14px;
+  font: 13px system-ui, -apple-system, sans-serif;
+  cursor: pointer;
+}
+.ctx-menu-item:hover:not(:disabled) {
+  background: #345;
+  color: #cef;
+}
+.ctx-menu-item:disabled {
+  color: #666;
+  cursor: not-allowed;
+}
 .toolbar button[aria-pressed='true'] {
   background: #345;
   color: #cef;

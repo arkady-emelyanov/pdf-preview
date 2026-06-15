@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useStore, type PageChars } from './store'
+import { ContextMenu, type ContextMenuItem } from './ContextMenu'
+import { copyTextSelection } from './keys'
 import type { PageRect } from '../../shared/ipc'
 
 interface Props {
@@ -96,6 +98,9 @@ export function TextSelectionLayer({
 
   const ref = useRef<HTMLDivElement>(null)
   const [dragging, setDragging] = useState(false)
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; items: ContextMenuItem[] } | null>(
+    null
+  )
 
   const vp = pages[virtualIndex]
   const key = vp ? `${vp.sourceId}|${vp.sourceIndex}` : null
@@ -144,40 +149,64 @@ export function TextSelectionLayer({
     setDragging(false)
   }
 
+  const onContextMenu = (e: React.MouseEvent): void => {
+    if (!hasSelectionHere) return
+    e.preventDefault()
+    e.stopPropagation()
+    setCtxMenu({
+      x: e.clientX,
+      y: e.clientY,
+      items: [{ label: 'Copy', onClick: () => void copyTextSelection() }]
+    })
+  }
+
   const spans =
     chars && hasSelectionHere
       ? mergeLineSpans(chars, textSelection!.start, textSelection!.end)
       : []
 
   return (
-    <div
-      ref={ref}
-      className="text-select-layer"
-      style={{
-        position: 'absolute',
-        inset: 0,
-        width: cssW,
-        height: cssH,
-        cursor: active ? 'text' : 'default',
-        pointerEvents: active ? 'auto' : 'none'
-      }}
-      onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
-    >
-      {spans.map((r, i) => (
-        <div
-          key={i}
-          className="text-select-rect"
-          style={{
-            position: 'absolute',
-            left: r.x * scale,
-            top: r.y * scale,
-            width: r.w * scale,
-            height: r.h * scale
-          }}
+    <>
+      <div
+        ref={ref}
+        className="text-select-layer"
+        style={{
+          position: 'absolute',
+          inset: 0,
+          width: cssW,
+          height: cssH,
+          cursor: active ? 'text' : 'default',
+          // Keep capturing right-clicks while a selection exists, even after
+          // the user switched away from the text tool, so they can still copy.
+          pointerEvents: active || hasSelectionHere ? 'auto' : 'none'
+        }}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onContextMenu={onContextMenu}
+      >
+        {spans.map((r, i) => (
+          <div
+            key={i}
+            className="text-select-rect"
+            style={{
+              position: 'absolute',
+              left: r.x * scale,
+              top: r.y * scale,
+              width: r.w * scale,
+              height: r.h * scale
+            }}
+          />
+        ))}
+      </div>
+      {ctxMenu && (
+        <ContextMenu
+          x={ctxMenu.x}
+          y={ctxMenu.y}
+          items={ctxMenu.items}
+          onClose={() => setCtxMenu(null)}
         />
-      ))}
-    </div>
+      )}
+    </>
   )
 }

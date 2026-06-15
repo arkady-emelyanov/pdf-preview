@@ -75,22 +75,16 @@ function buildWindow(title: string): BrowserWindow {
   })
 
   win.webContents.on('context-menu', (_event, params) => {
-    const inEditable = params.isEditable
+    // Only show a native menu inside editable inputs (search bar, note body,
+    // etc.). Everywhere else the renderer owns context menus via a React
+    // popover so it can include in-app actions like Paste annotation.
+    if (!params.isEditable) return
     const hasNativeSel = (params.selectionText ?? '').length > 0
-    const hasPdfSel = !!hasTextSelByWindow.get(win)
-    const items: Electron.MenuItemConstructorOptions[] = []
-    if (inEditable) {
-      items.push({ role: 'cut', enabled: hasNativeSel })
-      items.push({ role: 'copy', enabled: hasNativeSel })
-      items.push({ role: 'paste' })
-    } else {
-      items.push({
-        label: 'Copy',
-        enabled: hasPdfSel,
-        click: () => win.webContents.send('menu:copy')
-      })
-    }
-    Menu.buildFromTemplate(items).popup({ window: win })
+    Menu.buildFromTemplate([
+      { role: 'cut', enabled: hasNativeSel },
+      { role: 'copy', enabled: hasNativeSel },
+      { role: 'paste' }
+    ]).popup({ window: win })
   })
 
   win.on('close', (event) => {

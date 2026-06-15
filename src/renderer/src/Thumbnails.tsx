@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useStore } from './store'
 import { rotatedSize } from '../../shared/edit'
+import { ContextMenu, type ContextMenuItem } from './ContextMenu'
 
 const THUMB_WIDTH = 120
 
@@ -21,7 +22,8 @@ function Thumb({
   onDragOver,
   onDragLeave,
   onDrop,
-  onDragEnd
+  onDragEnd,
+  onContextMenu
 }: {
   sourceId: string
   virtualIndex: number
@@ -40,6 +42,7 @@ function Thumb({
   onDragLeave: (e: React.DragEvent) => void
   onDrop: (e: React.DragEvent) => void
   onDragEnd: (e: React.DragEvent) => void
+  onContextMenu: (e: React.MouseEvent) => void
 }): JSX.Element {
   const ref = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -97,6 +100,7 @@ function Thumb({
       onDragLeave={onDragLeave}
       onDrop={onDrop}
       onDragEnd={onDragEnd}
+      onContextMenu={onContextMenu}
     >
       <canvas ref={ref} style={{ width: THUMB_WIDTH, height: thumbHeight }} />
       <span className="thumb-label">{virtualIndex + 1}</span>
@@ -122,8 +126,14 @@ export function Thumbnails(): JSX.Element | null {
   const setCurrentPage = useStore((s) => s.setCurrentPage)
   const movePages = useStore((s) => s.movePages)
   const sourceSize = useStore((s) => s.sourceSize)
+  const deleteSelection = useStore((s) => s.deleteSelection)
+  const rotateSelection = useStore((s) => s.rotateSelection)
+  const setSelection = useStore((s) => s.setSelection)
   const anchorRef = useRef<number>(0)
   const [drag, setDrag] = useState<DragState | null>(null)
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; items: ContextMenuItem[] } | null>(
+    null
+  )
 
   if (!doc || !open) return null
 
@@ -177,6 +187,30 @@ export function Thumbnails(): JSX.Element | null {
         const onDragEnd = (_e: React.DragEvent): void => {
           setDrag(null)
         }
+        const onContextMenu = (e: React.MouseEvent): void => {
+          e.preventDefault()
+          e.stopPropagation()
+          // If the right-clicked thumb isn't in the current selection, switch
+          // selection to just that thumb so the menu actions operate on it.
+          if (!selection.has(i)) {
+            setSelection(new Set([i]))
+            anchorRef.current = i
+          }
+          setCtxMenu({
+            x: e.clientX,
+            y: e.clientY,
+            items: [
+              { label: 'Rotate Left', onClick: () => rotateSelection(-90) },
+              { label: 'Rotate Right', onClick: () => rotateSelection(90) },
+              {
+                label: 'Delete Page(s)',
+                // Refuse the last surviving page (matches deleteSelection guard).
+                enabled: pages.length > 1,
+                onClick: () => deleteSelection()
+              }
+            ]
+          })
+        }
         const isHovered = drag?.hover?.index === i
         return (
           <Thumb
@@ -198,9 +232,18 @@ export function Thumbnails(): JSX.Element | null {
             onDragLeave={onDragLeave}
             onDrop={onDrop}
             onDragEnd={onDragEnd}
+            onContextMenu={onContextMenu}
           />
         )
       })}
+      {ctxMenu && (
+        <ContextMenu
+          x={ctxMenu.x}
+          y={ctxMenu.y}
+          items={ctxMenu.items}
+          onClose={() => setCtxMenu(null)}
+        />
+      )}
     </div>
   )
 }

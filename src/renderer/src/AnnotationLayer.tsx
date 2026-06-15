@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useStore } from './store'
+import { ContextMenu, type ContextMenuItem } from './ContextMenu'
 import {
   HANDLES,
   NOTE_SIZE_PT,
@@ -273,11 +274,19 @@ export function AnnotationLayer({
   const liveUpdateAnnotation = useStore((s) => s.liveUpdateAnnotation)
 
   const annotations = page?.annotations ?? []
+  const clipboard = useStore((s) => s.clipboard)
+  const copyAnnotation = useStore((s) => s.copyAnnotation)
+  const cutAnnotation = useStore((s) => s.cutAnnotation)
+  const pasteAnnotation = useStore((s) => s.pasteAnnotation)
+  const deleteAnnotation = useStore((s) => s.deleteAnnotation)
   const ref = useRef<HTMLCanvasElement>(null)
   const [draw, setDraw] = useState<DrawState | null>(null)
   const [move, setMove] = useState<MoveState | null>(null)
   const [resize, setResize] = useState<ResizeState | null>(null)
   const [hoverHandle, setHoverHandle] = useState<HandlePos | 'h1' | 'h2' | null>(null)
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; items: ContextMenuItem[] } | null>(
+    null
+  )
 
   const drawingTool = tool === 'rect' || tool === 'oval' || tool === 'arrow'
   const noteTool = tool === 'note'
@@ -395,6 +404,49 @@ export function AnnotationLayer({
   const localCoords = (e: React.PointerEvent): { cx: number; cy: number } => {
     const rect = (e.currentTarget as HTMLCanvasElement).getBoundingClientRect()
     return { cx: e.clientX - rect.left, cy: e.clientY - rect.top }
+  }
+
+  const onContextMenu = (e: React.MouseEvent): void => {
+    // Don't let Electron's webContents handler pop up a native menu over ours.
+    e.preventDefault()
+    e.stopPropagation()
+    const rect = (e.currentTarget as HTMLCanvasElement).getBoundingClientRect()
+    const cx = e.clientX - rect.left
+    const cy = e.clientY - rect.top
+    const { x: ptX, y: ptY } = canvasToPoint(cx, cy, pageHeightPt, scale)
+    // Hit-test annotations top-most first.
+    let hit: Annotation | null = null
+    for (let i = annotations.length - 1; i >= 0; i--) {
+      if (hitTest(annotations[i], ptX, ptY)) {
+        hit = annotations[i]
+        break
+      }
+    }
+    if (hit) {
+      const hitId = hit.id
+      setSelected({ page: virtualIndex, id: hitId })
+      setCtxMenu({
+        x: e.clientX,
+        y: e.clientY,
+        items: [
+          { label: 'Copy', onClick: () => copyAnnotation(virtualIndex, hitId) },
+          { label: 'Cut', onClick: () => cutAnnotation(virtualIndex, hitId) },
+          { label: 'Delete', onClick: () => deleteAnnotation(virtualIndex, hitId) }
+        ]
+      })
+      return
+    }
+    setCtxMenu({
+      x: e.clientX,
+      y: e.clientY,
+      items: [
+        {
+          label: 'Paste',
+          enabled: !!clipboard,
+          onClick: () => pasteAnnotation(virtualIndex, ptX, ptY)
+        }
+      ]
+    })
   }
 
   const onPointerDown = (e: React.PointerEvent): void => {
@@ -619,21 +671,33 @@ export function AnnotationLayer({
           ? HANDLE_CURSORS[hoverHandle]
           : 'default'
   return (
-    <canvas
-      ref={ref}
-      className="annotation-layer"
-      style={{
-        position: 'absolute',
-        inset: 0,
-        width: cssW,
-        height: cssH,
-        cursor,
-        pointerEvents:
-          drawingTool || noteTool || annotations.length > 0 ? 'auto' : 'none'
-      }}
-      onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
-    />
+    <>
+      <canvas
+        ref={ref}
+        className="annotation-layer"
+        style={{
+          position: 'absolute',
+          inset: 0,
+          width: cssW,
+          height: cssH,
+          cursor,
+          // Always capture pointer events so right-click reaches us (Paste menu
+          // needs to work on empty pages too).
+          pointerEvents: 'auto'
+        }}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onContextMenu={onContextMenu}
+      />
+      {ctxMenu && (
+        <ContextMenu
+          x={ctxMenu.x}
+          y={ctxMenu.y}
+          items={ctxMenu.items}
+          onClose={() => setCtxMenu(null)}
+        />
+      )}
+    </>
   )
 }

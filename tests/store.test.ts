@@ -357,6 +357,61 @@ describe('store: annotations', () => {
     expect(useStore.getState().tool).toBe('rect')
   })
 
+  it('copyAnnotation stashes a copy in the clipboard', async () => {
+    const { makeRect } = await import('../src/shared/annotations')
+    const api = useStore.getState()
+    const r = makeRect({ x: 0, y: 0, w: 10, h: 10 })
+    api.addAnnotation(0, r)
+    api.copyAnnotation(0, r.id)
+    expect(useStore.getState().clipboard?.id).toBe(r.id)
+    // Cutting a different annotation replaces the clipboard and removes the source.
+    const r2 = makeRect({ x: 5, y: 5, w: 5, h: 5 })
+    api.addAnnotation(0, r2)
+    api.cutAnnotation(0, r2.id)
+    expect(useStore.getState().clipboard?.id).toBe(r2.id)
+    expect(useStore.getState().pages[0].annotations?.find((a) => a.id === r2.id)).toBeUndefined()
+  })
+
+  it('pasteAnnotation centers a box on the click point with a new id', async () => {
+    const { makeRect } = await import('../src/shared/annotations')
+    const api = useStore.getState()
+    const r = makeRect({ x: 0, y: 0, w: 40, h: 20 })
+    api.addAnnotation(0, r)
+    api.copyAnnotation(0, r.id)
+    api.pasteAnnotation(1, 100, 100)
+    const pasted = useStore.getState().pages[1].annotations
+    expect(pasted).toHaveLength(1)
+    expect(pasted![0].id).not.toBe(r.id)
+    // Box centered: x = 100 - w/2 = 80, y = 100 - h/2 = 90
+    const p = pasted![0] as typeof r
+    expect(p.x).toBe(80)
+    expect(p.y).toBe(90)
+    expect(p.w).toBe(40)
+    expect(p.h).toBe(20)
+  })
+
+  it('pasteAnnotation translates a line so its midpoint lands at the click', async () => {
+    const { makeLine } = await import('../src/shared/annotations')
+    const api = useStore.getState()
+    const a = makeLine('arrow', { x1: 0, y1: 0, x2: 10, y2: 0 })
+    useStore.setState({ clipboard: a })
+    api.pasteAnnotation(0, 50, 50)
+    const pasted = useStore.getState().pages[0].annotations![0] as typeof a
+    // midpoint of original = (5, 0); shift to (50, 50) → x1=45, x2=55, y1=50, y2=50
+    expect(pasted.x1).toBe(45)
+    expect(pasted.x2).toBe(55)
+    expect(pasted.y1).toBe(50)
+    expect(pasted.y2).toBe(50)
+    expect(pasted.id).not.toBe(a.id)
+  })
+
+  it('pasteAnnotation no-ops when clipboard is empty', () => {
+    useStore.setState({ clipboard: null })
+    const before = useStore.getState().pages[0].annotations?.length ?? 0
+    useStore.getState().pasteAnnotation(0, 10, 10)
+    expect(useStore.getState().pages[0].annotations?.length ?? 0).toBe(before)
+  })
+
   it('liveUpdateAnnotation does not touch the undo stack', async () => {
     const { makeRect } = await import('../src/shared/annotations')
     const api = useStore.getState()

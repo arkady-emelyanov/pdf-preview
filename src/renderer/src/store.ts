@@ -13,9 +13,13 @@ import {
   type VirtualPage
 } from '../../shared/edit'
 import {
+  NOTE_SIZE_PT,
   addAnnotation as addAnnFn,
   defaultBoxStyle,
   deleteAnnotation as delAnnFn,
+  isLine,
+  isNote,
+  newId,
   updateAnnotation as updAnnFn,
   type Annotation,
   type BoxStyle
@@ -78,6 +82,9 @@ interface State {
   toolDefaults: BoxStyle
   selectedAnnotation: { page: number; id: string } | null
 
+  // Annotation clipboard (in-app — not the system clipboard).
+  clipboard: Annotation | null
+
   // Text selection
   textSelection: TextSelection | null
   /** Cache keyed by `${sourceId}|${sourceIndex}` — virtual pages that share a
@@ -128,6 +135,11 @@ interface State {
   updateAnnotation: (page: number, id: string, patch: Partial<Annotation>) => void
   deleteAnnotation: (page: number, id: string) => void
   setSelectedAnnotation: (sel: { page: number; id: string } | null) => void
+
+  // Annotation clipboard
+  copyAnnotation: (page: number, id: string) => void
+  cutAnnotation: (page: number, id: string) => void
+  pasteAnnotation: (page: number, ptX: number, ptY: number) => void
   /** Snapshot current pages onto the undo stack — call once at drag start. */
   beginLiveEdit: () => void
   /** Patch an annotation without touching the undo stack — call during drag. */
@@ -176,6 +188,7 @@ export const useStore = create<State>((set, get) => ({
   tool: 'select',
   toolDefaults: { ...defaultBoxStyle },
   selectedAnnotation: null,
+  clipboard: null,
   textSelection: null,
   pageCharsCache: new Map(),
 
@@ -390,6 +403,65 @@ export const useStore = create<State>((set, get) => ({
   },
 
   setSelectedAnnotation: (sel) => set({ selectedAnnotation: sel }),
+
+  copyAnnotation: (page, id) => {
+    const s = get()
+    const ann = s.pages[page]?.annotations?.find((a) => a.id === id)
+    if (ann) set({ clipboard: ann })
+  },
+
+  cutAnnotation: (page, id) => {
+    const s = get()
+    const ann = s.pages[page]?.annotations?.find((a) => a.id === id)
+    if (!ann) return
+    set({ clipboard: ann })
+    s.deleteAnnotation(page, id)
+  },
+
+  pasteAnnotation: (page, ptX, ptY) => {
+    const s = get()
+    if (!s.clipboard) return
+    if (page < 0 || page >= s.pages.length) return
+    const src = s.clipboard
+    const now = Date.now()
+    let copy: Annotation
+    if (isLine(src)) {
+      const cx = (src.x1 + src.x2) / 2
+      const cy = (src.y1 + src.y2) / 2
+      const dx = ptX - cx
+      const dy = ptY - cy
+      copy = {
+        ...src,
+        id: newId(),
+        x1: src.x1 + dx,
+        y1: src.y1 + dy,
+        x2: src.x2 + dx,
+        y2: src.y2 + dy,
+        created: now,
+        modified: now
+      }
+    } else if (isNote(src)) {
+      copy = {
+        ...src,
+        id: newId(),
+        x: ptX - NOTE_SIZE_PT / 2,
+        y: ptY - NOTE_SIZE_PT / 2,
+        created: now,
+        modified: now
+      }
+    } else {
+      // Box: center on the click point.
+      copy = {
+        ...src,
+        id: newId(),
+        x: ptX - src.w / 2,
+        y: ptY - src.h / 2,
+        created: now,
+        modified: now
+      }
+    }
+    s.addAnnotation(page, copy)
+  },
 
   beginLiveEdit: () => {
     const s = get()
