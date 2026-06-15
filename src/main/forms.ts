@@ -121,6 +121,10 @@ export function initFormState(
 
 const FPDF_FORMFLAG_READONLY = 1
 
+/** Names that mark a widget as a system-generated barcode / data carrier we
+ *  must NOT unlock — the form's processing pipeline depends on its value. */
+const SYSTEM_FIELD_NAME_RE = /barcode|pdf417|qrcode|qr_code/i
+
 function unlockReadOnlyWidgets(
   mod: WrappedPdfiumModule,
   docPtr: number,
@@ -129,27 +133,40 @@ function unlockReadOnlyWidgets(
 ): void {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const m = mod as any
-  for (let pi = 0; pi < pageCount; pi++) {
-    const pagePtr = m.FPDF_LoadPage(docPtr, pi) as number
-    if (!pagePtr) continue
-    try {
-      const n = m.FPDFPage_GetAnnotCount(pagePtr) as number
-      for (let ai = 0; ai < n; ai++) {
-        const annot = m.FPDFPage_GetAnnot(pagePtr, ai) as number
-        if (!annot) continue
-        try {
-          if ((m.FPDFAnnot_GetSubtype(annot) as number) !== 20) continue
-          const flags = m.FPDFAnnot_GetFormFieldFlags(formHandle, annot) as number
-          if (flags & FPDF_FORMFLAG_READONLY) {
+  const raw = em(mod)
+  const namebuf = raw.wasmExports.malloc(1024)
+  if (!namebuf) return
+  try {
+    for (let pi = 0; pi < pageCount; pi++) {
+      const pagePtr = m.FPDF_LoadPage(docPtr, pi) as number
+      if (!pagePtr) continue
+      try {
+        const n = m.FPDFPage_GetAnnotCount(pagePtr) as number
+        for (let ai = 0; ai < n; ai++) {
+          const annot = m.FPDFPage_GetAnnot(pagePtr, ai) as number
+          if (!annot) continue
+          try {
+            if ((m.FPDFAnnot_GetSubtype(annot) as number) !== 20) continue
+            const flags = m.FPDFAnnot_GetFormFieldFlags(formHandle, annot) as number
+            if (!(flags & FPDF_FORMFLAG_READONLY)) continue
+            // Read the qualified name and skip system fields (barcodes, etc).
+            const got = m.FPDFAnnot_GetFormFieldName(formHandle, annot, namebuf, 1024)
+            const name =
+              got > 2
+                ? new TextDecoder('utf-16le').decode(raw.HEAPU8.subarray(namebuf, namebuf + got - 2))
+                : ''
+            if (SYSTEM_FIELD_NAME_RE.test(name)) continue
             m.FPDFAnnot_SetFormFieldFlags(formHandle, annot, flags & ~FPDF_FORMFLAG_READONLY)
+          } finally {
+            m.FPDFPage_CloseAnnot(annot)
           }
-        } finally {
-          m.FPDFPage_CloseAnnot(annot)
         }
+      } finally {
+        m.FPDF_ClosePage(pagePtr)
       }
-    } finally {
-      m.FPDF_ClosePage(pagePtr)
     }
+  } finally {
+    raw.wasmExports.free(namebuf)
   }
 }
 
