@@ -1,5 +1,5 @@
 import { useStore } from './store'
-import type { BoxStyle } from '../../shared/annotations'
+import { isLine, type BoxStyle } from '../../shared/annotations'
 
 const SWATCHES = ['#d33', '#2576d3', '#2da44e', '#1a1a1a']
 const WIDTHS = [1, 2, 4]
@@ -20,14 +20,17 @@ export function AnnotationProps(): JSX.Element | null {
 
   const selAnn =
     sel && pages[sel.page]?.annotations?.find((a) => a.id === sel.id)
-  const drawingTool = tool === 'rect' || tool === 'oval'
+  const drawingTool = tool === 'rect' || tool === 'oval' || tool === 'arrow' || tool === 'line'
   if (!selAnn && !drawingTool) return null
+
+  const selIsLine = !!selAnn && isLine(selAnn)
+  const supportsFill = !!selAnn ? !selIsLine : tool === 'rect' || tool === 'oval'
 
   const current: BoxStyle = selAnn
     ? {
         stroke: selAnn.stroke,
         strokeWidth: selAnn.strokeWidth,
-        fill: selAnn.fill,
+        fill: isLine(selAnn) ? undefined : selAnn.fill,
         opacity: selAnn.opacity
       }
     : toolDefaults
@@ -60,13 +63,15 @@ export function AnnotationProps(): JSX.Element | null {
           {w}
         </button>
       ))}
-      <button
-        aria-pressed={!!current.fill}
-        title={current.fill ? 'Remove fill' : 'Fill with stroke color'}
-        onClick={() => apply({ fill: current.fill ? undefined : current.stroke })}
-      >
-        {current.fill ? '▣' : '▢'}
-      </button>
+      {supportsFill && (
+        <button
+          aria-pressed={!!current.fill}
+          title={current.fill ? 'Remove fill' : 'Fill with stroke color'}
+          onClick={() => apply({ fill: current.fill ? undefined : current.stroke })}
+        >
+          {current.fill ? '▣' : '▢'}
+        </button>
+      )}
     </div>
   )
 }

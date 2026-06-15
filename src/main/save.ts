@@ -10,7 +10,7 @@ import {
   type PDFPage
 } from 'pdf-lib'
 import type { VirtualPage } from '../shared/edit'
-import { parseHexColor, type Annotation } from '../shared/annotations'
+import { lineBBox, parseHexColor, type Annotation } from '../shared/annotations'
 
 /**
  * Bake a (possibly multi-source) virtual-page edit graph onto disk via pdf-lib.
@@ -88,30 +88,51 @@ function writeAnnotations(page: PDFPage, anns: Annotation[]): void {
   const arr = existing instanceof PDFArray ? existing : ctx.obj([])
 
   for (const a of anns) {
-    if (a.kind !== 'rect' && a.kind !== 'oval') continue
-    const x1 = a.x
-    const y1 = a.y
-    const x2 = a.x + a.w
-    const y2 = a.y + a.h
     const rgb = parseHexColor(a.stroke) ?? [0.8, 0.2, 0.2]
-    const subtype = a.kind === 'oval' ? 'Circle' : 'Square'
-    const dict = ctx.obj({
-      Type: 'Annot',
-      Subtype: subtype,
-      Rect: [x1, y1, x2, y2],
-      C: rgb,
-      CA: a.opacity,
-      F: 4,
-      BS: ctx.obj({ Type: 'Border', W: a.strokeWidth, S: PDFName.of('S') }),
-      M: PDFString.of(toPdfDate(new Date(a.modified))),
-      T: a.author ? PDFHexString.fromText(a.author) : undefined,
-      NM: PDFString.of(a.id)
-    })
-    if (!a.author) dict.delete(PDFName.of('T'))
-    dict.set(PDFName.of('CA'), PDFNumber.of(a.opacity))
-    if (a.fill) {
-      const fillRgb = parseHexColor(a.fill)
-      if (fillRgb) dict.set(PDFName.of('IC'), ctx.obj(fillRgb))
+    let dict
+    if (a.kind === 'arrow' || a.kind === 'line') {
+      const bb = lineBBox(a)
+      dict = ctx.obj({
+        Type: 'Annot',
+        Subtype: 'Line',
+        Rect: [bb.x, bb.y, bb.x + bb.w, bb.y + bb.h],
+        L: [a.x1, a.y1, a.x2, a.y2],
+        LE: [PDFName.of('None'), PDFName.of(a.kind === 'arrow' ? 'OpenArrow' : 'None')],
+        C: rgb,
+        F: 4,
+        BS: ctx.obj({ Type: 'Border', W: a.strokeWidth, S: PDFName.of('S') }),
+        M: PDFString.of(toPdfDate(new Date(a.modified))),
+        T: a.author ? PDFHexString.fromText(a.author) : undefined,
+        NM: PDFString.of(a.id)
+      })
+      if (!a.author) dict.delete(PDFName.of('T'))
+      dict.set(PDFName.of('CA'), PDFNumber.of(a.opacity))
+    } else if (a.kind === 'rect' || a.kind === 'oval') {
+      const x1 = a.x
+      const y1 = a.y
+      const x2 = a.x + a.w
+      const y2 = a.y + a.h
+      const subtype = a.kind === 'oval' ? 'Circle' : 'Square'
+      dict = ctx.obj({
+        Type: 'Annot',
+        Subtype: subtype,
+        Rect: [x1, y1, x2, y2],
+        C: rgb,
+        CA: a.opacity,
+        F: 4,
+        BS: ctx.obj({ Type: 'Border', W: a.strokeWidth, S: PDFName.of('S') }),
+        M: PDFString.of(toPdfDate(new Date(a.modified))),
+        T: a.author ? PDFHexString.fromText(a.author) : undefined,
+        NM: PDFString.of(a.id)
+      })
+      if (!a.author) dict.delete(PDFName.of('T'))
+      dict.set(PDFName.of('CA'), PDFNumber.of(a.opacity))
+      if (a.fill) {
+        const fillRgb = parseHexColor(a.fill)
+        if (fillRgb) dict.set(PDFName.of('IC'), ctx.obj(fillRgb))
+      }
+    } else {
+      continue
     }
     arr.push(dict)
   }

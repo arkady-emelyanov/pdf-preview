@@ -3,11 +3,12 @@
  * (origin bottom-left, units = PDF points), so a saved annotation re-opens at
  * the same position regardless of zoom or display scale.
  *
- * v1 ships only the `rect` kind; oval / line / arrow / note / text reuse the
- * same envelope (id, page-coord geometry, style, author, timestamps).
+ * Bbox shapes (`rect`, `oval`) share `BoxAnnotationBase`. Two-endpoint shapes
+ * (`arrow`, `line`) share `LineAnnotation`. Sticky notes and text boxes will
+ * add their own envelopes later but follow the same id/style/timestamp pattern.
  */
 
-export type AnnotationKind = 'rect' | 'oval'
+export type AnnotationKind = 'rect' | 'oval' | 'arrow' | 'line'
 
 /** Shared shape for any bbox-style annotation (rect, oval). */
 export interface BoxAnnotationBase {
@@ -37,7 +38,27 @@ export interface OvalAnnotation extends BoxAnnotationBase {
   kind: 'oval'
 }
 
-export type Annotation = RectAnnotation | OvalAnnotation
+/**
+ * Two-endpoint annotation: a line segment between (x1,y1) and (x2,y2). When
+ * `kind === 'arrow'`, an open arrowhead is drawn at (x2, y2). For `kind === 'line'`,
+ * neither end gets a head. Both endpoints are in PDF page points.
+ */
+export interface LineAnnotation {
+  id: string
+  kind: 'arrow' | 'line'
+  x1: number
+  y1: number
+  x2: number
+  y2: number
+  stroke: string
+  strokeWidth: number
+  opacity: number
+  author?: string
+  created: number
+  modified: number
+}
+
+export type Annotation = RectAnnotation | OvalAnnotation | LineAnnotation
 
 export interface BoxStyle {
   stroke: string
@@ -85,6 +106,80 @@ export function makeRect(
   return makeBox('rect', init) as RectAnnotation
 }
 
+export function makeLine(
+  kind: 'arrow' | 'line',
+  init: { x1: number; y1: number; x2: number; y2: number } & Partial<
+    Pick<BoxStyle, 'stroke' | 'strokeWidth' | 'opacity'>
+  > & { author?: string }
+): LineAnnotation {
+  const now = Date.now()
+  return {
+    id: newId(),
+    kind,
+    x1: init.x1,
+    y1: init.y1,
+    x2: init.x2,
+    y2: init.y2,
+    stroke: init.stroke ?? defaultBoxStyle.stroke,
+    strokeWidth: init.strokeWidth ?? defaultBoxStyle.strokeWidth,
+    opacity: init.opacity ?? defaultBoxStyle.opacity,
+    author: init.author,
+    created: now,
+    modified: now
+  }
+}
+
+/** Tight bbox containing the segment + an arrowhead-sized margin. Used for
+ *  the selection marquee and for the saved PDF `/Rect`. */
+export function lineBBox(
+  a: LineAnnotation
+): { x: number; y: number; w: number; h: number } {
+  const headSize = a.kind === 'arrow' ? arrowHeadSizePt(a.strokeWidth) : 0
+  const pad = Math.max(a.strokeWidth, headSize)
+  const x = Math.min(a.x1, a.x2) - pad
+  const y = Math.min(a.y1, a.y2) - pad
+  const w = Math.abs(a.x2 - a.x1) + pad * 2
+  const h = Math.abs(a.y2 - a.y1) + pad * 2
+  return { x, y, w, h }
+}
+
+/** Length of the arrowhead along the segment direction, in PDF points. */
+export function arrowHeadSizePt(strokeWidth: number): number {
+  return Math.max(8, strokeWidth * 4)
+}
+
+/** Distance from point (px,py) to segment (x1,y1)-(x2,y2) in the same units. */
+export function distanceToSegment(
+  px: number,
+  py: number,
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number
+): number {
+  const dx = x2 - x1
+  const dy = y2 - y1
+  const len2 = dx * dx + dy * dy
+  if (len2 === 0) return Math.hypot(px - x1, py - y1)
+  let t = ((px - x1) * dx + (py - y1) * dy) / len2
+  t = Math.max(0, Math.min(1, t))
+  const cx = x1 + t * dx
+  const cy = y1 + t * dy
+  return Math.hypot(px - cx, py - cy)
+}
+
+export function hitTestLine(
+  a: LineAnnotation,
+  ptX: number,
+  ptY: number,
+  tolerancePt = 6
+): boolean {
+  return (
+    distanceToSegment(ptX, ptY, a.x1, a.y1, a.x2, a.y2) <=
+    Math.max(tolerancePt, a.strokeWidth)
+  )
+}
+
 export function addAnnotation(list: Annotation[] | undefined, a: Annotation): Annotation[] {
   return [...(list ?? []), a]
 }
@@ -105,6 +200,10 @@ export function deleteAnnotation(list: Annotation[] | undefined, id: string): An
   return list.filter((a) => a.id !== id)
 }
 
+export function isLine(a: Annotation): a is LineAnnotation {
+  return a.kind === 'arrow' || a.kind === 'line'
+}
+
 export function annotationsEqual(
   a: Annotation[] | undefined,
   b: Annotation[] | undefined
@@ -117,9 +216,15 @@ export function annotationsEqual(
     const y = lb[i]
     if (x.id !== y.id) return false
     if (x.kind !== y.kind) return false
-    if (x.x !== y.x || x.y !== y.y || x.w !== y.w || x.h !== y.h) return false
-    if (x.stroke !== y.stroke || x.strokeWidth !== y.strokeWidth) return false
-    if (x.fill !== y.fill || x.opacity !== y.opacity) return false
+    if (x.stroke !== y.stroke) return false
+    if (x.strokeWidth !== y.strokeWidth) return false
+    if (x.opacity !== y.opacity) return false
+    if (isLine(x) && isLine(y)) {
+      if (x.x1 !== y.x1 || x.y1 !== y.y1 || x.x2 !== y.x2 || x.y2 !== y.y2) return false
+    } else if (!isLine(x) && !isLine(y)) {
+      if (x.x !== y.x || x.y !== y.y || x.w !== y.w || x.h !== y.h) return false
+      if (x.fill !== y.fill) return false
+    }
   }
   return true
 }
@@ -251,9 +356,9 @@ export function hitTestOval(
 }
 
 export function hitTest(a: Annotation, ptX: number, ptY: number, tolerancePt = 4): boolean {
-  return a.kind === 'oval'
-    ? hitTestOval(a, ptX, ptY, tolerancePt)
-    : hitTestRect(a, ptX, ptY, tolerancePt)
+  if (isLine(a)) return hitTestLine(a, ptX, ptY, tolerancePt + 2)
+  if (a.kind === 'oval') return hitTestOval(a, ptX, ptY, tolerancePt)
+  return hitTestRect(a, ptX, ptY, tolerancePt)
 }
 
 /** Parse '#rrggbb' (or '#rgb') into [r,g,b] in 0..1. Returns null on failure. */

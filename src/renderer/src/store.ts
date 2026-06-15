@@ -21,7 +21,7 @@ import {
   type BoxStyle
 } from '../../shared/annotations'
 
-export type Tool = 'select' | 'rect' | 'oval'
+export type Tool = 'select' | 'rect' | 'oval' | 'arrow' | 'line'
 
 export type ZoomMode = 'fit-width' | 'fit-page' | 'actual' | 'custom'
 

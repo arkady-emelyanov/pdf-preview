@@ -144,11 +144,13 @@ highlights), since reprojection through the rotation isn't worth implementing
 twice.
 
 - **Shapes:** rectangle ✅, oval ✅ (share `BoxAnnotationBase` — bbox + style
-  identical, only `kind` and the draw/hit-test/save-subtype differ). Line and
-  arrow planned. Stroke color (4 swatches), stroke width (1/2/4), fill toggle.
-  Drag to draw. Resize ✅ — 8 corner+edge handles on the selected shape with
-  platform-appropriate cursors; drag-past-opposite flips cleanly. Rotate
-  handle planned.
+  identical, only `kind` and the draw/hit-test/save-subtype differ). Arrow ✅
+  + line ✅ share a separate `LineAnnotation` (two endpoints `x1,y1 → x2,y2`,
+  no bbox). Stroke color (4 swatches), stroke width (1/2/4), fill toggle
+  (rect/oval only). Drag to draw — bbox for rect/oval, tail-to-head for
+  arrow/line. Resize ✅: 8 corner+edge handles on bbox shapes (drag-past-
+  opposite flips cleanly); 2 endpoint handles on arrow/line let you drag
+  either end independently. Rotate handle still planned.
 - **Sticky notes**: planned. Anchored to page coordinate. Click to expand;
   collapsed icon by default. Author from `git config user.name` or OS user.
 - **Text boxes**: planned. Free-floating text, font (3–4 bundled), size, color.
@@ -157,18 +159,21 @@ twice.
   resize handle scales. Live drags use `beginLiveEdit` (one undo snapshot at
   drag start) + `liveUpdateAnnotation` (no undo push per frame), so one drag
   produces one undo entry rather than flooding the cap.
-- Tool palette in toolbar ✅ (Select / Rect / Oval) + an inline properties
-  panel (`AnnotationProps`) showing stroke swatches, width buttons, and a
-  fill toggle. When an annotation is selected the panel edits it; otherwise
-  it edits `toolDefaults` (sticky across documents), which the next drawn
-  shape adopts. `Esc` returns to select tool and clears any annotation
-  selection; `R` Rect, `O` Oval, `V` Select.
+- Tool palette in toolbar ✅ (Select / Rect / Oval / Arrow) + an inline
+  properties panel (`AnnotationProps`) showing stroke swatches, width
+  buttons, and a fill toggle (hidden for arrow/line). When an annotation is
+  selected the panel edits it; otherwise it edits `toolDefaults` (sticky
+  across documents), which the next drawn shape adopts. `Esc` returns to
+  select tool and clears any annotation
+  selection; `R` Rect, `O` Oval, `A` Arrow, `V` Select.
 - Save bakes shapes as standard PDF annotation dicts via pdf-lib's low-level
-  `context.obj` API: `/Square` for rect, `/Circle` for oval. Fields written:
-  Subtype, Rect, C (stroke 0..1), CA (opacity), F=4 (print), BS (border with
-  W = strokeWidth), M (modification date), NM (our id), T (author when set),
-  and IC (interior fill) when present. Round-trip tests in
-  `tests/save.test.ts` confirm the dict structure.
+  `context.obj` API: `/Square` for rect, `/Circle` for oval, `/Line` for
+  arrow and line. Common fields: Subtype, Rect, C (stroke 0..1), CA (opacity),
+  F=4 (print), BS (border with W = strokeWidth), M (modification date), NM
+  (our id), T (author when set). Bbox shapes add IC (interior fill) when
+  set. Line shapes add L (the two endpoints) and LE (`[/None /None]` for
+  plain line, `[/None /OpenArrow]` for arrow). Round-trip tests in
+  `tests/save.test.ts` confirm each dict structure.
 
 ### 4.3 Forms — *not yet*
 - **AcroForm:** render via PDFium's `renderFormFields` flag; capture filled state on save by re-reading the PDF and copying field values via pdf-lib. Option to flatten on export.
@@ -366,7 +371,7 @@ window.pdf = {
 1. **M0 — Skeleton** ✅: Electron + Vite + React boilerplate, 1-window-per-doc with blank-window reuse, PDFium-WASM rendering to `<canvas>`, custom toolbar (no browser chrome), AppImage builds, drag-drop / double-click open.
 2. **M1 — Viewport + nav** ✅: virtualized rendering, thumbnail rail, page sync, zoom modes, Ctrl+F search with bbox highlights, full keyboard nav, system font mapper.
 3. **M2 — Page ops** ✅: rotate ✅, delete ✅, drag-reorder ✅, multi-select ✅, undo/redo with snapshot stacks ✅, dirty indicator ✅, Save / Save As / Export Selection As ✅ via pdf-lib bake, Insert-from-other-PDF ✅, Merge ✅ (both via multi-source `VirtualPage {sourceId, ...}` and a secondary-source registry in main). Sidecar crash recovery: deferred to M6.
-4. **M3 — Annotations** ◐: overlay canvas ✅, rectangle ✅ + oval ✅ (draw + select + move + resize ✅ + delete + undo/redo + `/Square` / `/Circle` write-back), inline style picker (color / width / fill) ✅. Remaining: line / arrow shapes, rotate handle, sticky notes, text boxes.
+4. **M3 — Annotations** ◐: overlay canvas ✅, rectangle ✅ + oval ✅ + arrow ✅ + line ✅ (draw + select + move + resize/endpoint-drag ✅ + delete + undo/redo + `/Square` / `/Circle` / `/Line` write-back), inline style picker (color / width / fill) ✅. Remaining: rotate handle, sticky notes, text boxes.
 5. **M4 — Forms**: AcroForm read-back on save; XFA fallback path with banner.
 6. **M5 — Print**: CUPS pipeline, custom dialog, status.
 7. **M6 — Polish + AppImage release**: real icon, MIME registration, recent files, sidecar crash recovery, CI release pipeline.

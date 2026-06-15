@@ -2,13 +2,18 @@ import { describe, it, expect } from 'vitest'
 import {
   addAnnotation,
   annotationsEqual,
+  arrowHeadSizePt,
   canvasToPoint,
   deleteAnnotation,
+  distanceToSegment,
   handleCenter,
   hitTest,
+  hitTestLine,
   hitTestOval,
   hitTestRect,
+  lineBBox,
   makeBox,
+  makeLine,
   makeRect,
   parseHexColor,
   pointToCanvas,
@@ -168,6 +173,77 @@ describe('resizeRect', () => {
     // x2 = 180 - 200 = -20; new x = min(100, -20) = -20, w = 120
     expect(r.x).toBe(-20)
     expect(r.w).toBe(120)
+  })
+})
+
+describe('makeLine + arrow geometry', () => {
+  it('makeLine stamps endpoints and kind', () => {
+    const l = makeLine('arrow', { x1: 10, y1: 20, x2: 50, y2: 60, stroke: '#0a0', strokeWidth: 3 })
+    expect(l.kind).toBe('arrow')
+    expect(l).toMatchObject({ x1: 10, y1: 20, x2: 50, y2: 60, stroke: '#0a0', strokeWidth: 3 })
+  })
+
+  it('lineBBox includes arrowhead padding for arrows', () => {
+    const arrow = makeLine('arrow', { x1: 0, y1: 0, x2: 100, y2: 0, strokeWidth: 2 })
+    const line = makeLine('line', { x1: 0, y1: 0, x2: 100, y2: 0, strokeWidth: 2 })
+    const head = arrowHeadSizePt(2)
+    expect(lineBBox(arrow)).toEqual({
+      x: -head,
+      y: -head,
+      w: 100 + head * 2,
+      h: head * 2
+    })
+    expect(lineBBox(line).h).toBe(2 * 2) // just stroke pad
+  })
+
+  it('arrowHeadSizePt grows with stroke width and has a floor', () => {
+    expect(arrowHeadSizePt(1)).toBe(8) // floor
+    expect(arrowHeadSizePt(4)).toBe(16) // 4*4
+  })
+})
+
+describe('distanceToSegment', () => {
+  it('zero for a point on the segment', () => {
+    expect(distanceToSegment(5, 0, 0, 0, 10, 0)).toBe(0)
+  })
+  it('perpendicular distance for a point above the segment middle', () => {
+    expect(distanceToSegment(5, 4, 0, 0, 10, 0)).toBeCloseTo(4)
+  })
+  it('falls back to endpoint distance when projecting past the end', () => {
+    expect(distanceToSegment(-5, 0, 0, 0, 10, 0)).toBe(5)
+    expect(distanceToSegment(20, 0, 0, 0, 10, 0)).toBe(10)
+  })
+  it('handles degenerate segment (p1 == p2)', () => {
+    expect(distanceToSegment(3, 4, 0, 0, 0, 0)).toBe(5)
+  })
+})
+
+describe('hitTestLine', () => {
+  const a = makeLine('arrow', { x1: 0, y1: 0, x2: 100, y2: 0, strokeWidth: 2 })
+  it('hits ON the line', () => expect(hitTestLine(a, 50, 0, 6)).toBe(true))
+  it('hits within tolerance band', () => expect(hitTestLine(a, 50, 4, 6)).toBe(true))
+  it('misses outside tolerance band', () => expect(hitTestLine(a, 50, 50, 6)).toBe(false))
+  it('hitTest dispatches arrows to the line tester', () => {
+    expect(hitTest(a, 50, 2)).toBe(true)
+    expect(hitTest(a, 50, 50)).toBe(false)
+  })
+})
+
+describe('annotationsEqual across kinds', () => {
+  it('treats two equal arrows as equal', () => {
+    const a = makeLine('arrow', { x1: 0, y1: 0, x2: 10, y2: 10 })
+    const b = { ...a }
+    expect(annotationsEqual([a], [b])).toBe(true)
+  })
+  it('detects an endpoint change', () => {
+    const a = makeLine('arrow', { x1: 0, y1: 0, x2: 10, y2: 10 })
+    const b = { ...a, x2: 99 }
+    expect(annotationsEqual([a], [b])).toBe(false)
+  })
+  it('detects a kind change (arrow vs line) with same endpoints', () => {
+    const a = makeLine('arrow', { x1: 0, y1: 0, x2: 10, y2: 10 })
+    const b = { ...a, kind: 'line' as const }
+    expect(annotationsEqual([a], [b])).toBe(false)
   })
 })
 

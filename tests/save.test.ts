@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PDFArray, PDFDict, PDFDocument, PDFName, StandardFonts, degrees } from 'pdf-lib'
 import { saveDoc } from '../src/main/save'
-import { makeBox, makeRect } from '../src/shared/annotations'
+import { makeBox, makeLine, makeRect } from '../src/shared/annotations'
 
 let workDir: string
 let inputA: string
@@ -161,6 +161,35 @@ describe('saveDoc (annotations)', () => {
     const color = dict.lookup(PDFName.of('C'), PDFArray)
     expect(color.size()).toBe(3)
     expect(Number(color.lookup(0).toString())).toBeCloseTo(1, 5)
+  })
+
+  it('writes a /Line annotation for an arrow with LE [/None /OpenArrow]', async () => {
+    const out = join(workDir, 'with-arrow.pdf')
+    const ann = makeLine('arrow', {
+      x1: 30,
+      y1: 40,
+      x2: 200,
+      y2: 100,
+      stroke: '#00ff00',
+      strokeWidth: 2
+    })
+    await saveDoc({ [inputA]: inputA }, out, [
+      { sourceId: inputA, sourceIndex: 0, rotation: 0, annotations: [ann] }
+    ])
+    const doc = await PDFDocument.load(await readFile(out))
+    const arr = doc.getPage(0).node.Annots() as PDFArray
+    const dict = arr.lookup(0, PDFDict)
+    expect(dict.lookup(PDFName.of('Subtype'))?.toString()).toBe('/Line')
+    const L = dict.lookup(PDFName.of('L'), PDFArray)
+    expect(L.size()).toBe(4)
+    expect(Number(L.lookup(0).toString())).toBe(30)
+    expect(Number(L.lookup(1).toString())).toBe(40)
+    expect(Number(L.lookup(2).toString())).toBe(200)
+    expect(Number(L.lookup(3).toString())).toBe(100)
+    const LE = dict.lookup(PDFName.of('LE'), PDFArray)
+    expect(LE.size()).toBe(2)
+    expect(LE.lookup(0).toString()).toBe('/None')
+    expect(LE.lookup(1).toString()).toBe('/OpenArrow')
   })
 
   it('writes a /Circle annotation for an oval and includes /IC when filled', async () => {

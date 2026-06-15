@@ -2,15 +2,20 @@ import { useEffect, useRef, useState } from 'react'
 import { useStore } from './store'
 import {
   HANDLES,
+  arrowHeadSizePt,
   canvasToPoint,
   handleCenter,
   hitTest,
+  isLine,
   makeBox,
+  makeLine,
+  pointToCanvas,
   rectToCanvas,
   resizeRect,
   type Annotation,
   type BoxAnnotationBase,
-  type HandlePos
+  type HandlePos,
+  type LineAnnotation
 } from '../../shared/annotations'
 
 const HANDLE_SIZE_PX = 8
@@ -41,28 +46,47 @@ interface DrawState {
   curCy: number
 }
 
-interface MoveState {
-  id: string
-  startPtX: number
-  startPtY: number
-  origX: number
-  origY: number
-}
+type MoveState =
+  | {
+      kind: 'box'
+      id: string
+      startPtX: number
+      startPtY: number
+      origX: number
+      origY: number
+    }
+  | {
+      kind: 'line'
+      id: string
+      startPtX: number
+      startPtY: number
+      origX1: number
+      origY1: number
+      origX2: number
+      origY2: number
+    }
 
-interface ResizeState {
-  id: string
-  pos: HandlePos
-  startPtX: number
-  startPtY: number
-  origX: number
-  origY: number
-  origW: number
-  origH: number
-}
+type ResizeState =
+  | {
+      kind: 'box'
+      id: string
+      pos: HandlePos
+      startPtX: number
+      startPtY: number
+      origX: number
+      origY: number
+      origW: number
+      origH: number
+    }
+  | {
+      kind: 'line'
+      id: string
+      end: 'h1' | 'h2'
+    }
 
 function drawBox(
   ctx: CanvasRenderingContext2D,
-  a: Annotation,
+  a: BoxAnnotationBase & { kind: 'rect' | 'oval'; fill?: string },
   pageHeightPt: number,
   scale: number
 ): void {
@@ -92,6 +116,91 @@ function drawBox(
   ctx.globalAlpha = 1
 }
 
+function drawArrow(
+  ctx: CanvasRenderingContext2D,
+  a: LineAnnotation,
+  pageHeightPt: number,
+  scale: number
+): void {
+  const p1 = pointToCanvas(a.x1, a.y1, pageHeightPt, scale)
+  const p2 = pointToCanvas(a.x2, a.y2, pageHeightPt, scale)
+  ctx.globalAlpha = a.opacity
+  ctx.strokeStyle = a.stroke
+  ctx.lineWidth = a.strokeWidth
+  ctx.lineCap = 'round'
+  ctx.lineJoin = 'round'
+  drawSegmentWithHead(
+    ctx,
+    p1.cx,
+    p1.cy,
+    p2.cx,
+    p2.cy,
+    a.kind === 'arrow' ? arrowHeadSizePt(a.strokeWidth) * scale : 0
+  )
+  ctx.lineCap = 'butt'
+  ctx.lineJoin = 'miter'
+  ctx.globalAlpha = 1
+}
+
+/** Draw a line p1→p2 plus an open arrowhead at p2 when `headLen > 0`. */
+function drawSegmentWithHead(
+  ctx: CanvasRenderingContext2D,
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number,
+  headLen: number
+): void {
+  const dx = x2 - x1
+  const dy = y2 - y1
+  const len = Math.hypot(dx, dy)
+  if (len === 0) return
+  // Shorten the shaft so it ends just before the arrowhead, so the head's
+  // open wedge isn't crossed by the shaft line.
+  const shaftEndX = headLen > 0 ? x2 - (dx / len) * headLen * 0.6 : x2
+  const shaftEndY = headLen > 0 ? y2 - (dy / len) * headLen * 0.6 : y2
+  ctx.beginPath()
+  ctx.moveTo(x1, y1)
+  ctx.lineTo(shaftEndX, shaftEndY)
+  ctx.stroke()
+  if (headLen <= 0) return
+  const angle = Math.atan2(dy, dx)
+  const a = Math.PI / 7 // ~25.7°
+  const hx1 = x2 - headLen * Math.cos(angle - a)
+  const hy1 = y2 - headLen * Math.sin(angle - a)
+  const hx2 = x2 - headLen * Math.cos(angle + a)
+  const hy2 = y2 - headLen * Math.sin(angle + a)
+  ctx.beginPath()
+  ctx.moveTo(hx1, hy1)
+  ctx.lineTo(x2, y2)
+  ctx.lineTo(hx2, hy2)
+  ctx.stroke()
+}
+
+function lineEndpointHandles(
+  a: LineAnnotation,
+  pageHeightPt: number,
+  scale: number
+): { h1: { cx: number; cy: number }; h2: { cx: number; cy: number } } {
+  return {
+    h1: pointToCanvas(a.x1, a.y1, pageHeightPt, scale),
+    h2: pointToCanvas(a.x2, a.y2, pageHeightPt, scale)
+  }
+}
+
+function hitLineEndpoint(
+  a: LineAnnotation,
+  cx: number,
+  cy: number,
+  pageHeightPt: number,
+  scale: number
+): 'h1' | 'h2' | null {
+  const { h1, h2 } = lineEndpointHandles(a, pageHeightPt, scale)
+  if (Math.abs(cx - h1.cx) <= HANDLE_HIT_PX && Math.abs(cy - h1.cy) <= HANDLE_HIT_PX) return 'h1'
+  if (Math.abs(cx - h2.cx) <= HANDLE_HIT_PX && Math.abs(cy - h2.cy) <= HANDLE_HIT_PX) return 'h2'
+  return null
+}
+
 export function AnnotationLayer({
   virtualIndex,
   pageWidthPt,
@@ -112,9 +221,9 @@ export function AnnotationLayer({
   const [draw, setDraw] = useState<DrawState | null>(null)
   const [move, setMove] = useState<MoveState | null>(null)
   const [resize, setResize] = useState<ResizeState | null>(null)
-  const [hoverHandle, setHoverHandle] = useState<HandlePos | null>(null)
+  const [hoverHandle, setHoverHandle] = useState<HandlePos | 'h1' | 'h2' | null>(null)
 
-  const drawingTool = tool === 'rect' || tool === 'oval'
+  const drawingTool = tool === 'rect' || tool === 'oval' || tool === 'arrow'
   const cssW = pageWidthPt * scale
   const cssH = pageHeightPt * scale
 
@@ -130,40 +239,42 @@ export function AnnotationLayer({
     ctx.clearRect(0, 0, cssW, cssH)
 
     for (const a of annotations) {
-      drawBox(ctx, a, pageHeightPt, scale)
+      if (isLine(a)) drawArrow(ctx, a, pageHeightPt, scale)
+      else drawBox(ctx, a, pageHeightPt, scale)
       if (selected && selected.page === virtualIndex && selected.id === a.id) {
-        const r = rectToCanvas(a, pageHeightPt, scale)
-        ctx.strokeStyle = '#3aa0ff'
-        ctx.setLineDash([4, 3])
-        ctx.lineWidth = 1
-        ctx.strokeRect(r.x - 2, r.y - 2, r.w + 4, r.h + 4)
-        ctx.setLineDash([])
-        const half = HANDLE_SIZE_PX / 2
-        ctx.fillStyle = '#fff'
-        ctx.strokeStyle = '#3aa0ff'
-        ctx.lineWidth = 1
-        for (const pos of HANDLES) {
-          const { cx, cy } = handleCenter(pos, a, pageHeightPt, scale)
-          ctx.fillRect(cx - half, cy - half, HANDLE_SIZE_PX, HANDLE_SIZE_PX)
-          ctx.strokeRect(cx - half, cy - half, HANDLE_SIZE_PX, HANDLE_SIZE_PX)
-        }
+        drawSelectionChrome(ctx, a, pageHeightPt, scale)
       }
     }
 
     if (draw) {
-      const x = Math.min(draw.startCx, draw.curCx)
-      const y = Math.min(draw.startCy, draw.curCy)
-      const w = Math.abs(draw.curCx - draw.startCx)
-      const h = Math.abs(draw.curCy - draw.startCy)
       ctx.strokeStyle = toolDefaults.stroke
       ctx.lineWidth = toolDefaults.strokeWidth
-      if (tool === 'oval') {
-        ctx.beginPath()
-        ctx.ellipse(x + w / 2, y + h / 2, w / 2, h / 2, 0, 0, Math.PI * 2)
-        ctx.stroke()
+      ctx.lineCap = 'round'
+      ctx.lineJoin = 'round'
+      if (tool === 'arrow') {
+        drawSegmentWithHead(
+          ctx,
+          draw.startCx,
+          draw.startCy,
+          draw.curCx,
+          draw.curCy,
+          arrowHeadSizePt(toolDefaults.strokeWidth) * scale
+        )
       } else {
-        ctx.strokeRect(x, y, w, h)
+        const x = Math.min(draw.startCx, draw.curCx)
+        const y = Math.min(draw.startCy, draw.curCy)
+        const w = Math.abs(draw.curCx - draw.startCx)
+        const h = Math.abs(draw.curCy - draw.startCy)
+        if (tool === 'oval') {
+          ctx.beginPath()
+          ctx.ellipse(x + w / 2, y + h / 2, w / 2, h / 2, 0, 0, Math.PI * 2)
+          ctx.stroke()
+        } else {
+          ctx.strokeRect(x, y, w, h)
+        }
       }
+      ctx.lineCap = 'butt'
+      ctx.lineJoin = 'miter'
     }
   }, [
     annotations,
@@ -177,6 +288,41 @@ export function AnnotationLayer({
     tool,
     toolDefaults
   ])
+
+  function drawSelectionChrome(
+    ctx: CanvasRenderingContext2D,
+    a: Annotation,
+    pageH: number,
+    sc: number
+  ): void {
+    if (isLine(a)) {
+      const { h1, h2 } = lineEndpointHandles(a, pageH, sc)
+      const half = HANDLE_SIZE_PX / 2
+      ctx.fillStyle = '#fff'
+      ctx.strokeStyle = '#3aa0ff'
+      ctx.lineWidth = 1
+      for (const pt of [h1, h2]) {
+        ctx.fillRect(pt.cx - half, pt.cy - half, HANDLE_SIZE_PX, HANDLE_SIZE_PX)
+        ctx.strokeRect(pt.cx - half, pt.cy - half, HANDLE_SIZE_PX, HANDLE_SIZE_PX)
+      }
+      return
+    }
+    const r = rectToCanvas(a, pageH, sc)
+    ctx.strokeStyle = '#3aa0ff'
+    ctx.setLineDash([4, 3])
+    ctx.lineWidth = 1
+    ctx.strokeRect(r.x - 2, r.y - 2, r.w + 4, r.h + 4)
+    ctx.setLineDash([])
+    const half = HANDLE_SIZE_PX / 2
+    ctx.fillStyle = '#fff'
+    ctx.strokeStyle = '#3aa0ff'
+    ctx.lineWidth = 1
+    for (const pos of HANDLES) {
+      const { cx, cy } = handleCenter(pos, a, pageH, sc)
+      ctx.fillRect(cx - half, cy - half, HANDLE_SIZE_PX, HANDLE_SIZE_PX)
+      ctx.strokeRect(cx - half, cy - half, HANDLE_SIZE_PX, HANDLE_SIZE_PX)
+    }
+  }
 
   const localCoords = (e: React.PointerEvent): { cx: number; cy: number } => {
     const rect = (e.currentTarget as HTMLCanvasElement).getBoundingClientRect()
@@ -193,25 +339,35 @@ export function AnnotationLayer({
       return
     }
 
-    // Select tool. Handles on the currently-selected annotation get first dibs.
+    // Select tool. Endpoint / corner handles on the selected annotation win first.
     if (selected && selected.page === virtualIndex) {
       const sel = annotations.find((a) => a.id === selected.id)
       if (sel) {
-        const hit = hitHandle(sel, cx, cy, pageHeightPt, scale)
-        if (hit) {
-          const { x: ptX, y: ptY } = canvasToPoint(cx, cy, pageHeightPt, scale)
-          beginLiveEdit()
-          setResize({
-            id: sel.id,
-            pos: hit,
-            startPtX: ptX,
-            startPtY: ptY,
-            origX: sel.x,
-            origY: sel.y,
-            origW: sel.w,
-            origH: sel.h
-          })
-          return
+        if (isLine(sel)) {
+          const end = hitLineEndpoint(sel, cx, cy, pageHeightPt, scale)
+          if (end) {
+            beginLiveEdit()
+            setResize({ kind: 'line', id: sel.id, end })
+            return
+          }
+        } else {
+          const hit = hitBoxHandle(sel, cx, cy, pageHeightPt, scale)
+          if (hit) {
+            const { x: ptX, y: ptY } = canvasToPoint(cx, cy, pageHeightPt, scale)
+            beginLiveEdit()
+            setResize({
+              kind: 'box',
+              id: sel.id,
+              pos: hit,
+              startPtX: ptX,
+              startPtY: ptY,
+              origX: sel.x,
+              origY: sel.y,
+              origW: sel.w,
+              origH: sel.h
+            })
+            return
+          }
         }
       }
     }
@@ -227,15 +383,30 @@ export function AnnotationLayer({
       }
     }
     if (hit) {
-      setSelected({ page: virtualIndex, id: hit.id })
+      const hitAnn: Annotation = hit
+      setSelected({ page: virtualIndex, id: hitAnn.id })
       beginLiveEdit()
-      setMove({
-        id: hit.id,
-        startPtX: ptX,
-        startPtY: ptY,
-        origX: hit.x,
-        origY: hit.y
-      })
+      if (isLine(hitAnn)) {
+        setMove({
+          kind: 'line',
+          id: hitAnn.id,
+          startPtX: ptX,
+          startPtY: ptY,
+          origX1: hitAnn.x1,
+          origY1: hitAnn.y1,
+          origX2: hitAnn.x2,
+          origY2: hitAnn.y2
+        })
+      } else {
+        setMove({
+          kind: 'box',
+          id: hitAnn.id,
+          startPtX: ptX,
+          startPtY: ptY,
+          origX: hitAnn.x,
+          origY: hitAnn.y
+        })
+      }
     } else {
       setSelected(null)
     }
@@ -251,28 +422,51 @@ export function AnnotationLayer({
       const { x: ptX, y: ptY } = canvasToPoint(cx, cy, pageHeightPt, scale)
       const dx = ptX - move.startPtX
       const dy = ptY - move.startPtY
-      liveUpdateAnnotation(virtualIndex, move.id, {
-        x: move.origX + dx,
-        y: move.origY + dy
-      })
+      if (move.kind === 'line') {
+        liveUpdateAnnotation(virtualIndex, move.id, {
+          x1: move.origX1 + dx,
+          y1: move.origY1 + dy,
+          x2: move.origX2 + dx,
+          y2: move.origY2 + dy
+        })
+      } else {
+        liveUpdateAnnotation(virtualIndex, move.id, {
+          x: move.origX + dx,
+          y: move.origY + dy
+        })
+      }
       return
     }
     if (resize) {
-      const { x: ptX, y: ptY } = canvasToPoint(cx, cy, pageHeightPt, scale)
-      const dx = ptX - resize.startPtX
-      const dy = ptY - resize.startPtY
-      const r = resizeRect(
-        { x: resize.origX, y: resize.origY, w: resize.origW, h: resize.origH },
-        resize.pos,
-        dx,
-        dy
-      )
-      liveUpdateAnnotation(virtualIndex, resize.id, r)
+      if (resize.kind === 'line') {
+        const { x: ptX, y: ptY } = canvasToPoint(cx, cy, pageHeightPt, scale)
+        const patch =
+          resize.end === 'h1' ? { x1: ptX, y1: ptY } : { x2: ptX, y2: ptY }
+        liveUpdateAnnotation(virtualIndex, resize.id, patch)
+      } else {
+        const { x: ptX, y: ptY } = canvasToPoint(cx, cy, pageHeightPt, scale)
+        const dx = ptX - resize.startPtX
+        const dy = ptY - resize.startPtY
+        const r = resizeRect(
+          { x: resize.origX, y: resize.origY, w: resize.origW, h: resize.origH },
+          resize.pos,
+          dx,
+          dy
+        )
+        liveUpdateAnnotation(virtualIndex, resize.id, r)
+      }
       return
     }
     if (tool === 'select' && selected && selected.page === virtualIndex) {
       const sel = annotations.find((a) => a.id === selected.id)
-      const h = sel ? hitHandle(sel, cx, cy, pageHeightPt, scale) : null
+      let h: HandlePos | 'h1' | 'h2' | null = null
+      if (sel) {
+        if (isLine(sel)) {
+          h = hitLineEndpoint(sel, cx, cy, pageHeightPt, scale)
+        } else {
+          h = hitBoxHandle(sel, cx, cy, pageHeightPt, scale)
+        }
+      }
       if (h !== hoverHandle) setHoverHandle(h)
     } else if (hoverHandle) {
       setHoverHandle(null)
@@ -282,28 +476,47 @@ export function AnnotationLayer({
   const onPointerUp = (e: React.PointerEvent): void => {
     ;(e.currentTarget as HTMLCanvasElement).releasePointerCapture(e.pointerId)
     if (draw) {
-      const x0 = Math.min(draw.startCx, draw.curCx)
-      const y0 = Math.min(draw.startCy, draw.curCy)
-      const wCss = Math.abs(draw.curCx - draw.startCx)
-      const hCss = Math.abs(draw.curCy - draw.startCy)
+      const dCss = Math.hypot(draw.curCx - draw.startCx, draw.curCy - draw.startCy)
+      const wasDraw = draw
       setDraw(null)
-      if (wCss >= 4 && hCss >= 4) {
-        const tl = canvasToPoint(x0, y0, pageHeightPt, scale)
-        const br = canvasToPoint(x0 + wCss, y0 + hCss, pageHeightPt, scale)
-        const x = Math.min(tl.x, br.x)
-        const y = Math.min(tl.y, br.y)
-        const w = Math.abs(br.x - tl.x)
-        const h = Math.abs(br.y - tl.y)
-        const kind = tool === 'oval' ? 'oval' : 'rect'
-        const shape = makeBox(kind, { x, y, w, h, ...toolDefaults })
-        addAnnotation(virtualIndex, shape)
+      if (dCss >= 4) {
+        if (tool === 'arrow' || tool === 'line') {
+          const p1 = canvasToPoint(wasDraw.startCx, wasDraw.startCy, pageHeightPt, scale)
+          const p2 = canvasToPoint(wasDraw.curCx, wasDraw.curCy, pageHeightPt, scale)
+          const shape = makeLine(tool, {
+            x1: p1.x,
+            y1: p1.y,
+            x2: p2.x,
+            y2: p2.y,
+            stroke: toolDefaults.stroke,
+            strokeWidth: toolDefaults.strokeWidth,
+            opacity: toolDefaults.opacity
+          })
+          addAnnotation(virtualIndex, shape)
+        } else {
+          const x0 = Math.min(wasDraw.startCx, wasDraw.curCx)
+          const y0 = Math.min(wasDraw.startCy, wasDraw.curCy)
+          const wCss = Math.abs(wasDraw.curCx - wasDraw.startCx)
+          const hCss = Math.abs(wasDraw.curCy - wasDraw.startCy)
+          if (wCss >= 4 && hCss >= 4) {
+            const tl = canvasToPoint(x0, y0, pageHeightPt, scale)
+            const br = canvasToPoint(x0 + wCss, y0 + hCss, pageHeightPt, scale)
+            const x = Math.min(tl.x, br.x)
+            const y = Math.min(tl.y, br.y)
+            const w = Math.abs(br.x - tl.x)
+            const h = Math.abs(br.y - tl.y)
+            const kind = tool === 'oval' ? 'oval' : 'rect'
+            const shape = makeBox(kind, { x, y, w, h, ...toolDefaults })
+            addAnnotation(virtualIndex, shape)
+          }
+        }
       }
     }
     setMove(null)
     setResize(null)
   }
 
-  function hitHandle(
+  function hitBoxHandle(
     a: BoxAnnotationBase,
     cx: number,
     cy: number,
@@ -321,9 +534,11 @@ export function AnnotationLayer({
 
   const cursor = drawingTool
     ? 'crosshair'
-    : hoverHandle
-      ? HANDLE_CURSORS[hoverHandle]
-      : 'default'
+    : hoverHandle === 'h1' || hoverHandle === 'h2'
+      ? 'crosshair'
+      : hoverHandle
+        ? HANDLE_CURSORS[hoverHandle]
+        : 'default'
   return (
     <canvas
       ref={ref}
