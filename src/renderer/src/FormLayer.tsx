@@ -62,23 +62,12 @@ export function FormLayer({
       }}
       onPointerDown={(e) => {
         if (e.button !== 0) return
-        // preventDefault: stop the browser from doing its own focus/selection
-        // dance on the tabindex div. Without this, a *second* click while the
-        // div already holds DOM focus gets swallowed as a no-op selection
-        // adjustment instead of firing a fresh click pair into PDFium —
-        // which presents to the user as 'focus is stuck on the previous
-        // field until I click an empty area first'.
         e.preventDefault()
-        // Capture so the matching pointerup always lands here even if the
-        // user micro-drags between down + up. Without this, a tiny drag
-        // routes the up to whatever element sits under the new position;
-        // PDFium then sees an unbalanced down with no up and the next
-        // pointerdown reads as a second up — which is what causes the
-        // "click another field → previous checkbox flips back" symptom.
         ;(e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId)
         ;(e.currentTarget as HTMLDivElement).focus()
         const { cx, cy } = localCoords(e)
         const { x, y } = canvasToPagePt(cx, cy)
+        console.log(`[FormLayer] DOWN page=(${x.toFixed(1)},${y.toFixed(1)})`)
         void window.pdf.formEvent(sourceId, sourceIndex, { kind: 'down', pageX: x, pageY: y })
       }}
       onPointerMove={(e) => {
@@ -93,10 +82,8 @@ export function FormLayer({
         if (canvas.hasPointerCapture(e.pointerId)) canvas.releasePointerCapture(e.pointerId)
         const { cx, cy } = localCoords(e)
         const { x, y } = canvasToPagePt(cx, cy)
+        console.log(`[FormLayer] UP page=(${x.toFixed(1)},${y.toFixed(1)})`)
         void window.pdf.formEvent(sourceId, sourceIndex, { kind: 'up', pageX: x, pageY: y })
-        // Bump only on up — that's when PDFium's state actually settles
-        // (toggle a checkbox, place a caret, focus a field). Bumping on
-        // down too would force an in-flight render between down + up.
         bumpFormRevision(sourceId, sourceIndex)
       }}
       onKeyDown={(e) => {
