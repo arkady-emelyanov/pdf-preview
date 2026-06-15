@@ -327,22 +327,43 @@ export async function dispatchFormEvent(
     | { kind: 'keydown'; vkey: number; mods: number }
 ): Promise<void> {
   const d = docs.get(id)
-  if (!d || !d.form.hasForm || d.form.isXFA) return
+  if (!d) {
+    console.log(`[forms] dispatch: unknown doc ${id}`)
+    return
+  }
+  if (!d.form.hasForm || d.form.isXFA) {
+    console.log(`[forms] dispatch skipped (hasForm=${d.form.hasForm} isXFA=${d.form.isXFA})`)
+    return
+  }
   const mod = await getModule()
   const pagePtr = loadCachedPage(mod, d, pageIndex)
   if (!pagePtr) return
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const m = mod as any
   switch (ev.kind) {
-    case 'down':
-    case 'up':
+    case 'down': {
+      const ok = m.FORM_OnLButtonDown(d.form.formHandle, pagePtr, 0, ev.pageX, ev.pageY)
+      console.log(`[forms] OnLButtonDown(${ev.pageX.toFixed(2)},${ev.pageY.toFixed(2)}) -> ${ok}`)
+      break
+    }
+    case 'up': {
+      const ok = m.FORM_OnLButtonUp(d.form.formHandle, pagePtr, 0, ev.pageX, ev.pageY)
+      console.log(`[forms] OnLButtonUp -> ${ok}`)
+      break
+    }
     case 'move':
       forwardPointerEvent(mod, d.form, pagePtr, ev.kind, ev.pageX, ev.pageY)
       break
-    case 'char':
-      forwardChar(mod, d.form, pagePtr, ev.charCode, ev.mods)
+    case 'char': {
+      const ok = m.FORM_OnChar(d.form.formHandle, pagePtr, ev.charCode, ev.mods)
+      console.log(`[forms] OnChar(${ev.charCode}) -> ${ok}`)
       break
-    case 'keydown':
-      forwardKeyDown(mod, d.form, pagePtr, ev.vkey, ev.mods)
+    }
+    case 'keydown': {
+      const ok = m.FORM_OnKeyDown(d.form.formHandle, pagePtr, ev.vkey, ev.mods)
+      console.log(`[forms] OnKeyDown(0x${ev.vkey.toString(16)}) -> ${ok}`)
       break
+    }
   }
 }
 
