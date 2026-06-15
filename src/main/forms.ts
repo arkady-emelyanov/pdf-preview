@@ -56,6 +56,9 @@ export interface FieldValue {
   name: string
   type: FieldType
   value: string
+  /** PDFium's FPDF_FORMFLAG_* bitmask. Useful for diagnosing weirdness like
+   *  ReadOnly (bit 0) or Text fields with the Comb flag (bit 24). */
+  flags?: number
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -164,7 +167,8 @@ export function readFieldValues(
             if (!name || seen.has(name)) continue
             const t = m.FPDFAnnot_GetFormFieldType(st.formHandle, annotPtr) as number
             const value = readWideString(m.FPDFAnnot_GetFormFieldValue, annotPtr)
-            seen.set(name, { name, type: FIELD_TYPES[t] ?? 'unknown', value })
+            const flags = m.FPDFAnnot_GetFormFieldFlags(st.formHandle, annotPtr) as number
+            seen.set(name, { name, type: FIELD_TYPES[t] ?? 'unknown', value, flags })
           } finally {
             m.FPDFPage_CloseAnnot(annotPtr)
           }
