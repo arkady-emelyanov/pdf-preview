@@ -176,6 +176,11 @@ interface State {
    *  PDFium's in-memory state. */
   formRevisions: Record<string, number>
   bumpFormRevision: (sourceId: string, sourceIndex: number) => void
+  /** True once the user has edited any AcroForm widget. Form values live in
+   *  PDFium's in-memory state, not in our edit graph, so we track dirtiness
+   *  with a separate flag and OR it into the menu/window dirty signal. */
+  formDirty: boolean
+  setFormDirty: (b: boolean) => void
 
   // Helpers
   sourcePaths: () => Record<string, string>
@@ -540,7 +545,7 @@ export const useStore = create<State>((set, get) => ({
 
   markSaved: () => {
     const s = get()
-    set({ savedPages: s.pages })
+    set({ savedPages: s.pages, formDirty: false })
     window.pdf.setDirty(false)
   },
 
@@ -549,7 +554,8 @@ export const useStore = create<State>((set, get) => ({
       if (!s.doc) return s
       return {
         doc: { ...s.doc, id: newPath, path: newPath, name: newName },
-        savedPages: s.pages
+        savedPages: s.pages,
+        formDirty: false
       }
     })
     window.pdf.setDirty(false)
@@ -561,6 +567,11 @@ export const useStore = create<State>((set, get) => ({
       const key = `${sourceId}|${sourceIndex}`
       return { formRevisions: { ...s.formRevisions, [key]: (s.formRevisions[key] ?? 0) + 1 } }
     }),
+  formDirty: false,
+  setFormDirty: (b) => {
+    set({ formDirty: b })
+    if (b) window.pdf.setDirty(true)
+  },
 
   sourcePaths: () => {
     const s = get()

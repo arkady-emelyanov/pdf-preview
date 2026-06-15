@@ -53,7 +53,7 @@ export function App(): JSX.Element {
       const s = useStore.getState()
       window.pdf.setMenuState({
         hasDoc: !!s.doc,
-        dirty: !pagesEqual(s.pages, s.savedPages),
+        dirty: !pagesEqual(s.pages, s.savedPages) || s.formDirty,
         canUndo: s.undoStack.length > 0,
         canRedo: s.redoStack.length > 0,
         hasSelection: s.selection.size > 0

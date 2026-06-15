@@ -28,6 +28,7 @@ export function FormLayer({
 }: Props): JSX.Element | null {
   const sources = useStore((s) => s.sources)
   const bumpFormRevision = useStore((s) => s.bumpFormRevision)
+  const setFormDirty = useStore((s) => s.setFormDirty)
   const src = sources[sourceId]
 
   if (!src || !src.hasForm || src.isXFA) return null
@@ -83,6 +84,9 @@ export function FormLayer({
         const { x, y } = canvasToPagePt(cx, cy)
         void window.pdf.formEvent(sourceId, sourceIndex, { kind: 'up', pageX: x, pageY: y })
         bumpFormRevision(sourceId, sourceIndex)
+        // Clicks alone (e.g., checkbox toggles) change form state; mark
+        // the doc dirty so Save is offered.
+        setFormDirty(true)
       }}
       onKeyDown={(e) => {
         // Let app shortcuts win for modifier combos (Ctrl+S etc.); keys.ts
@@ -100,6 +104,7 @@ export function FormLayer({
             mods: 0
           })
           bumpFormRevision(sourceId, sourceIndex)
+          setFormDirty(true)
           e.preventDefault()
           return
         }
@@ -111,6 +116,10 @@ export function FormLayer({
             mods: modBits(e)
           })
           bumpFormRevision(sourceId, sourceIndex)
+          // Navigation keys (arrows / Home / etc.) don't change content but
+          // they're cheap to flag; tradeoff: false positives if a user only
+          // navigates without editing. Worth it for the simpler model.
+          setFormDirty(true)
           e.preventDefault()
           return
         }
@@ -124,6 +133,7 @@ export function FormLayer({
               mods: 0
             })
             bumpFormRevision(sourceId, sourceIndex)
+            setFormDirty(true)
             e.preventDefault()
           }
         }
