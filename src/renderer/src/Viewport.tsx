@@ -21,6 +21,8 @@ export function Viewport(): JSX.Element {
   const scrollRef = useRef<HTMLDivElement>(null)
   const [visibleSet, setVisibleSet] = useState<Set<number>>(new Set([0]))
 
+  // Re-runs when `doc` flips because the scroll div is only mounted on the
+  // happy-path return below — the placeholder branch has no ref to observe.
   useLayoutEffect(() => {
     const el = scrollRef.current
     if (!el) return
@@ -30,7 +32,7 @@ export function Viewport(): JSX.Element {
     ro.observe(el)
     setViewportSize(el.clientWidth, el.clientHeight)
     return () => ro.disconnect()
-  }, [setViewportSize])
+  }, [setViewportSize, doc])
 
   const vpSize = useStore((s) => s.viewportSize)
   useEffect(() => {

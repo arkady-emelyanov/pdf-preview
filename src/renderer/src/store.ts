@@ -486,6 +486,9 @@ export function computeFittedScale(
   mode: ZoomMode,
   vp: { w: number; h: number }
 ): number | null {
+  // Actual Size has a known answer regardless of viewport — short-circuit so
+  // it works even before the first ResizeObserver tick.
+  if (mode === 'actual') return 1
   if (vp.w <= 0 || vp.h <= 0) return null
   const pad = 32
   const maxW = maxPageWidth(sizes)
@@ -496,7 +499,6 @@ export function computeFittedScale(
     const sh = (vp.h - pad) / maxH
     return Math.min(sw, sh)
   }
-  if (mode === 'actual') return 1
   return null
 }
 
