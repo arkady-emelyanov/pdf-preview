@@ -50,7 +50,14 @@ export function buildMenu(): void {
         { role: 'redo' },
         { type: 'separator' },
         { role: 'cut' },
-        { role: 'copy' },
+        {
+          // Override the native role so we can copy PDF text selection too.
+          // The renderer decides: input fields fall through to execCommand;
+          // otherwise we copy the active textSelection.
+          label: 'Copy',
+          accelerator: 'CmdOrCtrl+C',
+          click: () => send('menu:copy')
+        },
         { role: 'paste' },
         { role: 'selectAll' }
       ]

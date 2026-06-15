@@ -1,12 +1,17 @@
-import { BrowserWindow, dialog, shell } from 'electron'
+import { BrowserWindow, Menu, dialog, shell } from 'electron'
 import { realpathSync } from 'node:fs'
 import { basename, join } from 'node:path'
 
 const windowsByPath = new Map<string, BrowserWindow>()
 const blankWindows = new Set<BrowserWindow>()
 const dirtyByWindow = new WeakMap<BrowserWindow, boolean>()
+const hasTextSelByWindow = new WeakMap<BrowserWindow, boolean>()
 /** Windows currently allowed to close without re-prompting (we said OK once). */
 const closingApproved = new WeakSet<BrowserWindow>()
+
+export function setWindowHasTextSelection(win: BrowserWindow, has: boolean): void {
+  hasTextSelByWindow.set(win, has)
+}
 
 export function setWindowDirty(win: BrowserWindow, dirty: boolean): void {
   dirtyByWindow.set(win, dirty)
@@ -45,6 +50,25 @@ function buildWindow(title: string): BrowserWindow {
   win.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url)
     return { action: 'deny' }
+  })
+
+  win.webContents.on('context-menu', (_event, params) => {
+    const inEditable = params.isEditable
+    const hasNativeSel = (params.selectionText ?? '').length > 0
+    const hasPdfSel = !!hasTextSelByWindow.get(win)
+    const items: Electron.MenuItemConstructorOptions[] = []
+    if (inEditable) {
+      items.push({ role: 'cut', enabled: hasNativeSel })
+      items.push({ role: 'copy', enabled: hasNativeSel })
+      items.push({ role: 'paste' })
+    } else {
+      items.push({
+        label: 'Copy',
+        enabled: hasPdfSel,
+        click: () => win.webContents.send('menu:copy')
+      })
+    }
+    Menu.buildFromTemplate(items).popup({ window: win })
   })
 
   win.on('close', (event) => {

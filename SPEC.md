@@ -118,7 +118,7 @@ this as a known limitation.
 - Zoom modes: fit-width, fit-page, actual size, custom %. Toolbar select.
 - Thumbnail sidebar (IntersectionObserver-lazy thumbnails at 0.25× scale).
 - Page input (jump to N), prev/next buttons in toolbar and as floating side chevrons, Ctrl+F search with **per-line highlight rects** drawn from PDFium char boxes.
-- **Text selection** ✅: a `Text` tool (`T`) flips each page's overlay into a text-cursor mode. Drag selects char range; `Ctrl+C` copies the text; `Esc` clears. Driven by a new `pdf:getChars` IPC that returns `{text, boxes}` from `FPDFText_GetCharBox` (per-char box in PDF page coords). The renderer caches per (sourceId, sourceIndex), so revisiting a page is instant. v1 limit: single-page selection only.
+- **Text selection** ✅: a `Text` tool (`T`) flips each page's overlay into a text-cursor mode. Drag selects char range; **Edit → Copy** (`Ctrl+C`) and right-click → Copy both copy the slice; `Esc` clears. Driven by a new `pdf:getChars` IPC that returns `{text, boxes}` from `FPDFText_GetCharBox` (per-char box in PDF page coords). The renderer caches per (sourceId, sourceIndex), so revisiting a page is instant. Main tracks per-window has-selection state (via `pdf:setHasTextSelection`) to grey out the context menu's Copy item when nothing's selected; input fields fall through to the platform's native copy. v1 limit: single-page selection only.
 - Bookmarks: read PDF outline; jump on click. (Editing outline = future.)
 - Keyboard shortcuts mirror Preview where sensible (⌘→Ctrl):
   - `Ctrl+F` find, `Ctrl+L` sidebar

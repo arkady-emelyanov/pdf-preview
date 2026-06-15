@@ -7,6 +7,7 @@ import {
   createBlankWindow,
   pathForWindow,
   setWindowDirty,
+  setWindowHasTextSelection,
   approveClose
 } from './windows'
 import { buildMenu, showOpenDialog } from './menu'
@@ -191,6 +192,12 @@ app.whenReady().then(() => {
     setImmediate(() => {
       if (!win.isDestroyed()) win.close()
     })
+  })
+
+  ipcMain.on('pdf:setHasTextSelection', (evt, has: boolean) => {
+    const win = BrowserWindow.fromWebContents(evt.sender)
+    if (!win) return
+    setWindowHasTextSelection(win, has)
   })
 
   ipcMain.on('pdf:setDirty', (evt, dirty: boolean) => {

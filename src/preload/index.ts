@@ -9,6 +9,7 @@ type MenuChannel =
   | 'insertPages'
   | 'mergePdfs'
   | 'saveAndClose'
+  | 'copy'
 
 const api = {
   openCurrent: (): Promise<DocInfo | null> => ipcRenderer.invoke('pdf:open'),
@@ -48,6 +49,8 @@ const api = {
   ): Promise<{ ok: true; path: string } | { ok: false; error?: string }> =>
     ipcRenderer.invoke('pdf:saveAs', sources, pages, defaultName),
   setDirty: (dirty: boolean): void => ipcRenderer.send('pdf:setDirty', dirty),
+  setHasTextSelection: (has: boolean): void =>
+    ipcRenderer.send('pdf:setHasTextSelection', has),
   saveAndCloseResult: (ok: boolean): void =>
     ipcRenderer.send('pdf:saveAndCloseResult', ok),
   close: (id: string): void => ipcRenderer.send('pdf:close', id),

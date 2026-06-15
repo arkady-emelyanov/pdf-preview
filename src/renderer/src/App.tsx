@@ -5,7 +5,7 @@ import { Thumbnails } from './Thumbnails'
 import { Viewport } from './Viewport'
 import { SideNav } from './SideNav'
 import { SearchBar } from './SearchBar'
-import { useKeyboardShortcuts } from './keys'
+import { copyTextSelection, useKeyboardShortcuts } from './keys'
 
 export function App(): JSX.Element {
   const setDoc = useStore((s) => s.setDoc)
@@ -26,6 +26,21 @@ export function App(): JSX.Element {
       off()
     }
   }, [setDoc])
+
+  // Edit > Copy and right-click → Copy both fire menu:copy on the renderer.
+  useEffect(() => {
+    return window.pdf.onMenu('copy', () => void copyTextSelection())
+  }, [])
+
+  // Mirror text-selection presence into main so the context menu can grey out
+  // "Copy" when there's nothing to copy.
+  useEffect(() => {
+    return useStore.subscribe((state, prev) => {
+      const has = !!state.textSelection
+      const prevHas = !!prev.textSelection
+      if (has !== prevHas) window.pdf.setHasTextSelection(has)
+    })
+  }, [])
 
   // Window-level drag-and-drop. preventDefault on dragover is required for drop
   // to fire; without dragleave bookkeeping the overlay flickers as the cursor

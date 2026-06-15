@@ -1,6 +1,46 @@
 import { useEffect } from 'react'
 import { useStore } from './store'
 
+/**
+ * Copy the active text selection to the clipboard, with a textarea +
+ * execCommand fallback for Wayland contexts where the async clipboard API is
+ * unavailable. Returns true if something was copied.
+ *
+ * If the focused element is an editable input, defer to the platform's native
+ * copy (returns false → caller can decide to do nothing or run execCommand).
+ */
+export async function copyTextSelection(): Promise<boolean> {
+  const active = document.activeElement as HTMLElement | null
+  const tag = active?.tagName
+  if (tag === 'INPUT' || tag === 'TEXTAREA') {
+    document.execCommand('copy')
+    return true
+  }
+  const s = useStore.getState()
+  const ts = s.textSelection
+  if (!ts) return false
+  const vp = s.pages[ts.page]
+  if (!vp) return false
+  const chars = s.pageCharsCache.get(`${vp.sourceId}|${vp.sourceIndex}`)
+  if (!chars) return false
+  const lo = Math.min(ts.start, ts.end)
+  const hi = Math.max(ts.start, ts.end)
+  const slice = chars.text.slice(lo, hi + 1)
+  try {
+    await navigator.clipboard.writeText(slice)
+  } catch {
+    const ta = document.createElement('textarea')
+    ta.value = slice
+    ta.style.position = 'fixed'
+    ta.style.left = '-9999px'
+    document.body.appendChild(ta)
+    ta.select()
+    document.execCommand('copy')
+    document.body.removeChild(ta)
+  }
+  return true
+}
+
 export function useKeyboardShortcuts(): void {
   useEffect(() => {
     const handler = async (e: KeyboardEvent): Promise<void> => {
@@ -80,35 +120,6 @@ export function useKeyboardShortcuts(): void {
         s.rotateSelection(90)
         return
       }
-      if (mod && e.key.toLowerCase() === 'c' && !inField && s.textSelection) {
-        const ts = s.textSelection
-        const vp = s.pages[ts.page]
-        if (vp) {
-          const cached = s.pageCharsCache.get(`${vp.sourceId}|${vp.sourceIndex}`)
-          if (cached) {
-            const lo = Math.min(ts.start, ts.end)
-            const hi = Math.max(ts.start, ts.end)
-            const slice = cached.text.slice(lo, hi + 1)
-            e.preventDefault()
-            try {
-              await navigator.clipboard.writeText(slice)
-            } catch {
-              // Clipboard API can fail in some Linux/Wayland contexts; fall back
-              // to a hidden textarea + execCommand.
-              const ta = document.createElement('textarea')
-              ta.value = slice
-              ta.style.position = 'fixed'
-              ta.style.left = '-9999px'
-              document.body.appendChild(ta)
-              ta.select()
-              document.execCommand('copy')
-              document.body.removeChild(ta)
-            }
-          }
-        }
-        return
-      }
-
       if (inField) return
 
       if (e.key === 'Delete' || e.key === 'Backspace') {
