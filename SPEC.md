@@ -242,9 +242,73 @@ twice.
   `p4l-`-tagged annotations from each copied page before re-writing, so a
   save → load → save cycle keeps exactly one copy of each.
 
-### 4.3 Forms — *not yet*
-- **AcroForm:** render via PDFium's `renderFormFields` flag; capture filled state on save by re-reading the PDF and copying field values via pdf-lib. Option to flatten on export.
-- **XFA:** detect via PDFium failure or `/XFA` key in catalog → switch that doc's viewport to PDF.js with XFA layer. Read-only fill in v1; document the limitation.
+### 4.3 Forms — *M4 planned*
+
+Goal: open a PDF with form fields, see the fields rendered with any
+previously-saved values, fill or change them in place, Save (or Save As) and
+have those values stick when the file is reopened — in our app and in
+external viewers. The most native path goes through PDFium's FormFill API
+rather than a parallel HTML-input overlay; that way PDFium owns the input
+state machine (focus, selection, text editing, dropdowns, checkboxes, radio
+groups, listboxes), and we just forward DOM events and ask it to repaint.
+
+- **Detection on open.** The main-process loader inspects the catalog: a
+  `/AcroForm` dict means we have a fillable form; an `/AcroForm /XFA` entry
+  (array of streams) means the file is XFA — we then disable form
+  interaction and surface a banner ("This form was authored in XFA; values
+  will display read-only and won't round-trip"). AcroForm-only files take
+  the full editing path below.
+- **PDFium FormFill env.** On open we call `FPDFDOC_InitFormFillEnvironment`
+  with an `FPDF_FORMFILLINFO` struct supplied from main; the JS side fills
+  in the callback table (`FFI_Invalidate`, `FFI_SetCursor`, focus / change
+  hooks, JS alert/etc.). The handle lives for the doc's lifetime and is
+  torn down via `FPDFDOC_ExitFormFillEnvironment` on close. We do not need
+  JavaScript validators / actions for v1, so the JS callbacks return inert
+  defaults.
+- **Rendering.** The renderer keeps the existing bitmap pipeline; after we
+  draw page content with `FPDF_RenderPageBitmap`, we call `FPDF_FFLDraw`
+  with the same bitmap + form handle so PDFium paints filled fields,
+  checkmarks, radio dots, and focus chrome on top. Re-rasterizing after
+  every keystroke is fine — pages are already cached by page index and
+  scale, so a cached entry is just invalidated and re-rendered when
+  PDFium's `FFI_Invalidate` fires for that page.
+- **Input.** The renderer overlays an invisible, focusable layer over each
+  page (similar to the annotation layer). Pointer / keyboard events forward
+  to PDFium via `FORM_OnLButtonDown/Up/Move`, `FORM_OnFocus`,
+  `FORM_OnKeyDown`, `FORM_OnChar`. PDFium handles cursor placement and edit
+  state; we just relay events. The active-tool palette gets a "Form" mode
+  (auto-activated when a doc has an AcroForm) that suppresses annotation
+  hit-testing on form-field regions so clicks don't fight over the same
+  pixels.
+- **Save.** On save, we ask PDFium for the current field values via the
+  `FPDF_FORM*` accessors (or, equivalently, `FORM_GetFocusedText` /
+  per-field reads), then mirror those values into the output PDF through
+  pdf-lib's `PDFForm` API (`getField(name).setText(value)` /
+  `setSelected` / `check`). This keeps our existing pdf-lib save pipeline
+  intact and produces a standards-compliant file that reopens with the
+  same values in Acrobat / Preview / Okular. (Alternative considered:
+  `FPDF_SaveAsCopy` straight from PDFium. Rejected because it bypasses the
+  edit-graph: page reorder / rotate / inserted pages from other sources
+  wouldn't be reflected.)
+- **Edit graph hook-up.** Field values become part of the per-page edit
+  state so they participate in undo/redo and the dirty indicator — much
+  like annotations. Schema sketch: `VirtualPage.formValues?: Record<string,
+  FormFieldValue>` keyed by qualified field name; mutations push undo
+  snapshots like everything else. PDFium remains the source of truth for
+  rendering, but our edit-graph values override what PDFium reports right
+  before save.
+- **Flatten on export.** Save As gains a "Flatten form fields" checkbox.
+  When set, after writing values via pdf-lib we call `flatten()` so the
+  exported file has appearance-only content; useful for sending the form
+  somewhere it shouldn't be re-edited.
+- **XFA punt.** XFA forms render with PDFium's static fallback (the field
+  bitmaps baked into the page). We don't write back values; the banner
+  documents the limitation. Re-authoring as AcroForm is out of scope.
+
+IPC + module changes implied for M4: a `forms.ts` module in main holding the
+PDFium form handle per doc; preload additions for `forwardFormEvent`,
+`getFormFieldValues`, `setFormFieldValue`; a `FormLayer` component in the
+renderer; and pdf-lib `PDFForm` writes during `save.ts`.
 
 ### 4.4 Page operations (**implemented in M2 / M2.1 / M2.2**)
 
