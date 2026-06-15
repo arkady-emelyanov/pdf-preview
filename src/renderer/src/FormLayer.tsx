@@ -1,3 +1,4 @@
+import { useRef } from 'react'
 import { useStore } from './store'
 
 interface Props {
@@ -30,6 +31,10 @@ export function FormLayer({
   const bumpFormRevision = useStore((s) => s.bumpFormRevision)
   const setFormDirty = useStore((s) => s.setFormDirty)
   const src = sources[sourceId]
+  // Throttle move-induced re-renders so dragging a dropdown's scrollbar
+  // doesn't flood the IPC + paint queue. ~30fps is fast enough to feel
+  // responsive without saturating the WASM thread.
+  const lastMoveBumpRef = useRef(0)
 
   if (!src || !src.hasForm || src.isXFA) return null
 
@@ -76,6 +81,14 @@ export function FormLayer({
         const { cx, cy } = localCoords(e)
         const { x, y } = canvasToPagePt(cx, cy)
         void window.pdf.formEvent(sourceId, sourceIndex, { kind: 'move', pageX: x, pageY: y })
+        // Re-render every ~30ms while dragging so widgets that paint mid-
+        // drag (combobox listbox scroll, slider thumb) stay in sync. Without
+        // this the dropdown scrollbar only redraws on pointerup.
+        const now = performance.now()
+        if (now - lastMoveBumpRef.current > 33) {
+          lastMoveBumpRef.current = now
+          bumpFormRevision(sourceId, sourceIndex)
+        }
       }}
       onPointerUp={(e) => {
         const canvas = e.currentTarget as HTMLDivElement

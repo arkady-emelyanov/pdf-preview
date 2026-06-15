@@ -377,15 +377,39 @@ export async function dispatchFormEvent(
   const mod = await getModule()
   const pagePtr = loadCachedPage(mod, d, pageIndex)
   if (!pagePtr) return false
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const m = mod as any
+  const raw = em(mod)
   switch (ev.kind) {
-    case 'down':
+    case 'down': {
+      // PDFium-WASM keeps text-widget focus sticky when the next click lands
+      // on a different text widget — UP returns true, but visual focus never
+      // moves. Force-killing focus first fixes that. We skip the force-kill
+      // when the currently-focused widget is a combobox or listbox, since
+      // those have an open listbox region the user is about to click into,
+      // and force-kill would slam it shut before the option click registers.
+      const fbuf = raw.wasmExports.malloc(8)
+      if (fbuf) {
+        try {
+          const focused = m.FORM_GetFocusedAnnot(d.form.formHandle, fbuf, fbuf + 4) as boolean
+          if (focused) {
+            const annot = new Int32Array(raw.HEAPU8.buffer, fbuf + 4, 1)[0]
+            if (annot) {
+              const ftype = m.FPDFAnnot_GetFormFieldType(d.form.formHandle, annot) as number
+              const isDropdownish = ftype === 4 || ftype === 5
+              if (!isDropdownish) m.FORM_ForceToKillFocus(d.form.formHandle)
+              m.FPDFPage_CloseAnnot(annot)
+            }
+          }
+        } finally {
+          raw.wasmExports.free(fbuf)
+        }
+      }
+      forwardPointerEvent(mod, d.form, pagePtr, 'down', ev.pageX, ev.pageY)
+      break
+    }
     case 'up':
     case 'move':
-      // The earlier sticky-focus bug needed FORM_ForceToKillFocus before
-      // each pointerdown, but that also closed any open combobox dropdown
-      // before the user could click an option. Caching page handles for
-      // the doc's lifetime turned out to be enough to keep focus transfer
-      // working on its own, so the force-kill is gone.
       forwardPointerEvent(mod, d.form, pagePtr, ev.kind, ev.pageX, ev.pageY)
       break
     case 'char':
