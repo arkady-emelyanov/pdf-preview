@@ -175,6 +175,77 @@ export function readFieldValues(
   return [...seen.values()]
 }
 
+/**
+ * Read the live (in-progress) edit-buffer of the currently focused widget,
+ * if any. `FPDFAnnot_GetFormFieldValue` only returns the committed `/V`,
+ * which doesn't update until the field commits (focus loss / Enter / etc.);
+ * for live per-keystroke dirty tracking we need the editor buffer instead.
+ *
+ * Returns `null` when nothing's focused or the focused widget isn't
+ * something we can read text from.
+ */
+export function readFocusedFieldLive(
+  mod: WrappedPdfiumModule,
+  st: FormState,
+  resolvePage: (pageIndex: number) => number
+): { name: string; value: string } | null {
+  if (!st.hasForm || st.isXFA || !st.formHandle) return null
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const m = mod as any
+  const raw = em(mod)
+  const buf = raw.wasmExports.malloc(16) // 4 bytes page_index + 4 bytes annot ptr (padded)
+  if (!buf) return null
+  try {
+    const ok = m.FORM_GetFocusedAnnot(st.formHandle, buf, buf + 4)
+    if (!ok) return null
+    const pageIndex = new Int32Array(raw.HEAPU8.buffer, buf, 1)[0]
+    const annotPtr = new Int32Array(raw.HEAPU8.buffer, buf + 4, 1)[0]
+    if (!annotPtr) return null
+    try {
+      const pagePtr = resolvePage(pageIndex)
+      if (!pagePtr) return null
+      // Read name (qualified).
+      const nameLen = m.FPDFAnnot_GetFormFieldName(st.formHandle, annotPtr, 0, 0)
+      let name = ''
+      if (nameLen > 2) {
+        const nbuf = raw.wasmExports.malloc(nameLen)
+        if (nbuf) {
+          try {
+            const got = m.FPDFAnnot_GetFormFieldName(st.formHandle, annotPtr, nbuf, nameLen)
+            if (got > 2) {
+              name = new TextDecoder('utf-16le').decode(raw.HEAPU8.subarray(nbuf, nbuf + got - 2))
+            }
+          } finally {
+            raw.wasmExports.free(nbuf)
+          }
+        }
+      }
+      if (!name) return null
+      // Read live edit buffer.
+      const liveLen = m.FORM_GetFocusedText(st.formHandle, pagePtr, 0, 0)
+      let value = ''
+      if (liveLen > 2) {
+        const vbuf = raw.wasmExports.malloc(liveLen)
+        if (vbuf) {
+          try {
+            const got = m.FORM_GetFocusedText(st.formHandle, pagePtr, vbuf, liveLen)
+            if (got > 2) {
+              value = new TextDecoder('utf-16le').decode(raw.HEAPU8.subarray(vbuf, vbuf + got - 2))
+            }
+          } finally {
+            raw.wasmExports.free(vbuf)
+          }
+        }
+      }
+      return { name, value }
+    } finally {
+      m.FPDFPage_CloseAnnot(annotPtr)
+    }
+  } finally {
+    raw.wasmExports.free(buf)
+  }
+}
+
 /** Convert a renderer-side pointer position (already in PDF page points,
  *  origin top-left) to PDFium's "device space" relative to the bitmap. We
  *  pass device coords (the same we use for FFLDraw) so PDFium's hit-test

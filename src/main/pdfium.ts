@@ -22,6 +22,7 @@ import {
   notifyPageClosed,
   notifyPageLoaded,
   readFieldValues,
+  readFocusedFieldLive,
   type FieldValue,
   type FormState
 } from './forms'
@@ -173,16 +174,20 @@ export async function refreshFormBaseline(id: string): Promise<void> {
 }
 
 /** Compute whether any form field's current value differs from the baseline.
- *  Returns false when the doc has no form. */
+ *  Uses the focused widget's *live* edit buffer (so per-keystroke dirty
+ *  works for text inputs) and falls back to the committed `/V` for every
+ *  other field. */
 export async function computeFormDirty(id: string): Promise<boolean> {
   const d = docs.get(id)
   if (!d || !d.form.hasForm || !d.formBaseline) return false
   const mod = await getModule()
+  const live = readFocusedFieldLive(mod, d.form, (pi) => d.pageCache.get(pi) ?? 0)
   const current = readFieldValues(mod, d.form, d.pageCount)
   if (current.length !== d.formBaseline.size) return true
   for (const f of current) {
+    const value = live && live.name === f.name ? live.value : f.value
     const orig = d.formBaseline.get(f.name)
-    if (orig === undefined || orig !== f.value) return true
+    if (orig === undefined || orig !== value) return true
   }
   return false
 }
@@ -372,20 +377,15 @@ export async function dispatchFormEvent(
   const mod = await getModule()
   const pagePtr = loadCachedPage(mod, d, pageIndex)
   if (!pagePtr) return false
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const m = mod as any
   switch (ev.kind) {
     case 'down':
-      // PDFium-WASM's form-fill leaves the previously-focused widget sticky
-      // when a fresh OnLButtonDown lands on a different widget — UP comes
-      // back true but the focus indicator never moves. Force-killing focus
-      // first turns every click into a clean "defocus then focus" sequence,
-      // which works around it.
-      m.FORM_ForceToKillFocus(d.form.formHandle)
-      forwardPointerEvent(mod, d.form, pagePtr, 'down', ev.pageX, ev.pageY)
-      break
     case 'up':
     case 'move':
+      // The earlier sticky-focus bug needed FORM_ForceToKillFocus before
+      // each pointerdown, but that also closed any open combobox dropdown
+      // before the user could click an option. Caching page handles for
+      // the doc's lifetime turned out to be enough to keep focus transfer
+      // working on its own, so the force-kill is gone.
       forwardPointerEvent(mod, d.form, pagePtr, ev.kind, ev.pageX, ev.pageY)
       break
     case 'char':
