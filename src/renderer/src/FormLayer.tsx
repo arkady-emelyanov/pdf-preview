@@ -1,4 +1,3 @@
-import { useEffect, useRef } from 'react'
 import { useStore } from './store'
 
 interface Props {
@@ -13,7 +12,7 @@ interface Props {
  * Transparent layer over a page that forwards pointer + keyboard input to
  * PDFium's form-fill env. PDFium owns field focus / cursor / edit state, so
  * the user types into native widgets even though the rendering is just a
- * bitmap. After every input we bump a per-page revision so PdfPage re-renders
+ * bitmap. After each input we bump a per-page revision so PdfPage re-renders
  * the bitmap with PDFium's new field state.
  *
  * v1 punts: enabled only when the host page is un-rotated. Rotated form
@@ -30,45 +29,6 @@ export function FormLayer({
   const sources = useStore((s) => s.sources)
   const bumpFormRevision = useStore((s) => s.bumpFormRevision)
   const src = sources[sourceId]
-  const ref = useRef<HTMLDivElement>(null)
-
-  // Forward keyboard input while the layer has DOM focus.
-  useEffect(() => {
-    const el = ref.current
-    if (!el) return
-    const onKeyDown = (e: KeyboardEvent): void => {
-      const mods = modBits(e)
-      // ASCII printables that don't repeat as a `keydown`-only event still
-      // need to reach FORM_OnChar; we'll get them via the `keypress` /
-      // `beforeinput` path below for character input.
-      const vkey = winVKey(e.key)
-      if (vkey !== null) {
-        void window.pdf.formEvent(sourceId, sourceIndex, { kind: 'keydown', vkey, mods })
-        bumpFormRevision(sourceId, sourceIndex)
-        if (vkey >= 8 && vkey <= 46) e.preventDefault()
-      }
-    }
-    const onBeforeInput = (e: InputEvent): void => {
-      if (!e.data) return
-      for (const ch of e.data) {
-        const cp = ch.codePointAt(0) ?? 0
-        if (cp === 0) continue
-        void window.pdf.formEvent(sourceId, sourceIndex, {
-          kind: 'char',
-          charCode: cp,
-          mods: 0
-        })
-      }
-      bumpFormRevision(sourceId, sourceIndex)
-      e.preventDefault()
-    }
-    el.addEventListener('keydown', onKeyDown)
-    el.addEventListener('beforeinput', onBeforeInput as EventListener)
-    return () => {
-      el.removeEventListener('keydown', onKeyDown)
-      el.removeEventListener('beforeinput', onBeforeInput as EventListener)
-    }
-  }, [sourceId, sourceIndex, bumpFormRevision])
 
   if (!src || !src.hasForm || src.isXFA) return null
 
@@ -87,11 +47,8 @@ export function FormLayer({
 
   return (
     <div
-      ref={ref}
       className="form-layer"
       tabIndex={0}
-      contentEditable
-      suppressContentEditableWarning
       style={{
         position: 'absolute',
         inset: 0,
@@ -105,12 +62,17 @@ export function FormLayer({
       }}
       onPointerDown={(e) => {
         if (e.button !== 0) return
-        e.preventDefault()
+        // Capture so the matching pointerup always lands here even if the
+        // user micro-drags between down + up. Without this, a tiny drag
+        // routes the up to whatever element sits under the new position;
+        // PDFium then sees an unbalanced down with no up and the next
+        // pointerdown reads as a second up — which is what causes the
+        // "click another field → previous checkbox flips back" symptom.
+        ;(e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId)
         ;(e.currentTarget as HTMLDivElement).focus()
         const { cx, cy } = localCoords(e)
         const { x, y } = canvasToPagePt(cx, cy)
         void window.pdf.formEvent(sourceId, sourceIndex, { kind: 'down', pageX: x, pageY: y })
-        bumpFormRevision(sourceId, sourceIndex)
       }}
       onPointerMove={(e) => {
         // Skip when no buttons are down — saves IPC chatter on every hover.
@@ -120,25 +82,57 @@ export function FormLayer({
         void window.pdf.formEvent(sourceId, sourceIndex, { kind: 'move', pageX: x, pageY: y })
       }}
       onPointerUp={(e) => {
+        const canvas = e.currentTarget as HTMLDivElement
+        if (canvas.hasPointerCapture(e.pointerId)) canvas.releasePointerCapture(e.pointerId)
         const { cx, cy } = localCoords(e)
         const { x, y } = canvasToPagePt(cx, cy)
         void window.pdf.formEvent(sourceId, sourceIndex, { kind: 'up', pageX: x, pageY: y })
+        // Bump only on up — that's when PDFium's state actually settles
+        // (toggle a checkbox, place a caret, focus a field). Bumping on
+        // down too would force an in-flight render between down + up.
         bumpFormRevision(sourceId, sourceIndex)
+      }}
+      onKeyDown={(e) => {
+        // Let app shortcuts win for modifier combos (Ctrl+S etc.); keys.ts
+        // already lets non-modifier keys through because the host element
+        // is focusable. We just need to forward keystrokes.
+        if (e.ctrlKey || e.metaKey || e.altKey) return
+        const vkey = winVKey(e.key)
+        if (vkey !== null) {
+          void window.pdf.formEvent(sourceId, sourceIndex, {
+            kind: 'keydown',
+            vkey,
+            mods: modBits(e)
+          })
+          bumpFormRevision(sourceId, sourceIndex)
+          e.preventDefault()
+          return
+        }
+        // Printable single-character key: forward as FORM_OnChar.
+        if (e.key.length === 1) {
+          const cp = e.key.codePointAt(0) ?? 0
+          if (cp > 0) {
+            void window.pdf.formEvent(sourceId, sourceIndex, {
+              kind: 'char',
+              charCode: cp,
+              mods: 0
+            })
+            bumpFormRevision(sourceId, sourceIndex)
+            e.preventDefault()
+          }
+        }
       }}
     />
   )
 }
 
-/** Bit-shifted modifier mask matching PDFium's FWL_EVENTFLAG_* values:
- *  Shift = 1<<0, Ctrl = 1<<1, Alt = 1<<2. */
-function modBits(e: KeyboardEvent): number {
+function modBits(e: React.KeyboardEvent): number {
   return (e.shiftKey ? 1 : 0) | (e.ctrlKey ? 2 : 0) | (e.altKey ? 4 : 0)
 }
 
 /** Translate a KeyboardEvent.key into a Win32 virtual-key code as PDFium
  *  expects for FORM_OnKeyDown. Only the keys we care about (navigation,
- *  editing, common modifiers) — character input goes through `beforeinput`
- *  → FORM_OnChar. */
+ *  editing) — character input goes through FORM_OnChar. */
 function winVKey(key: string): number | null {
   switch (key) {
     case 'Backspace':
@@ -149,8 +143,6 @@ function winVKey(key: string): number | null {
       return 0x0d
     case 'Escape':
       return 0x1b
-    case ' ':
-      return 0x20
     case 'PageUp':
       return 0x21
     case 'PageDown':
