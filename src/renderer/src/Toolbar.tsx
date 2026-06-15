@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useStore } from './store'
 import { identityPages, pagesEqual, type VirtualPage } from '../../shared/edit'
 import { AnnotationProps } from './AnnotationProps'
@@ -134,13 +134,39 @@ export function Toolbar(): JSX.Element {
     }
   }
 
+  // Menu IPCs fire after first render, by which point `doc`/`pages`/etc. have
+  // shifted from their initial nulls. The effect can only attach once (no
+  // good deps to list), so route through a ref that we refresh every render —
+  // the IPC handler always invokes the latest closure.
+  const handlersRef = useRef({
+    doSave,
+    doSaveAs,
+    doExtract,
+    doInsert,
+    doMerge,
+    doSaveAndClose
+  })
+  handlersRef.current = { doSave, doSaveAs, doExtract, doInsert, doMerge, doSaveAndClose }
+
   useEffect(() => {
-    const off1 = window.pdf.onMenu('save', () => void doSave())
-    const off2 = window.pdf.onMenu('saveAs', () => void doSaveAs())
-    const off3 = window.pdf.onMenu('extractSelection', () => void doExtract())
-    const off4 = window.pdf.onMenu('insertPages', () => void doInsert())
-    const off5 = window.pdf.onMenu('mergePdfs', () => void doMerge())
-    const off6 = window.pdf.onMenu('saveAndClose', () => void doSaveAndClose())
+    const off1 = window.pdf.onMenu('save', () => void handlersRef.current.doSave())
+    const off2 = window.pdf.onMenu('saveAs', () => void handlersRef.current.doSaveAs())
+    const off3 = window.pdf.onMenu(
+      'extractSelection',
+      () => void handlersRef.current.doExtract()
+    )
+    const off4 = window.pdf.onMenu(
+      'insertPages',
+      () => void handlersRef.current.doInsert()
+    )
+    const off5 = window.pdf.onMenu(
+      'mergePdfs',
+      () => void handlersRef.current.doMerge()
+    )
+    const off6 = window.pdf.onMenu(
+      'saveAndClose',
+      () => void handlersRef.current.doSaveAndClose()
+    )
     return () => {
       off1()
       off2()
@@ -149,7 +175,6 @@ export function Toolbar(): JSX.Element {
       off5()
       off6()
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   return (
