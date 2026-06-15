@@ -91,6 +91,12 @@ export function initFormState(mod: WrappedPdfiumModule, docPtr: number): FormSta
     m.PDFiumExt_CloseFormFillInfo(formInfoPtr)
     return { docPtr, formInfoPtr: 0, formHandle: 0, hasForm: false, isXFA }
   }
+  // Paint a soft yellow tint over every form field so the user can see at a
+  // glance what's editable — same convention Chrome / Acrobat use. fieldType
+  // 0 (FPDF_FORMFIELD_UNKNOWN) means 'apply to all field types'. ARGB-packed
+  // color: 0xFFFFCC (light yellow); alpha is set separately (0..255).
+  m.FPDF_SetFormFieldHighlightColor(formHandle, 0, 0xffffcc)
+  m.FPDF_SetFormFieldHighlightAlpha(formHandle, 80)
   return { docPtr, formInfoPtr, formHandle, hasForm: true, isXFA }
 }
 
