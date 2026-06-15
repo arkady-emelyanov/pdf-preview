@@ -104,7 +104,49 @@ export function initFormState(mod: WrappedPdfiumModule, docPtr: number): FormSta
     m.FPDF_SetFormFieldHighlightColor(formHandle, ftype, COLOR)
   }
   m.FPDF_SetFormFieldHighlightAlpha(formHandle, 80)
+  // Strip the ReadOnly flag (bit 0) from every widget. USCIS / IRS / many
+  // government forms mark "secondary" fields ReadOnly and rely on Acrobat
+  // JavaScript to flip them on when the user checks a primary control
+  // (e.g. the apt-number text box is ReadOnly until the "Apt" checkbox
+  // ticks). PDFium-WASM doesn't execute that JavaScript, so the field
+  // would otherwise stay locked forever. Clearing the bit at open time
+  // is the same workaround Preview / Foxit use on these files.
+  unlockReadOnlyWidgets(mod, docPtr, formHandle, pageCount)
   return { docPtr, formInfoPtr, formHandle, hasForm: true, isXFA }
+}
+
+const FPDF_FORMFLAG_READONLY = 1
+
+function unlockReadOnlyWidgets(
+  mod: WrappedPdfiumModule,
+  docPtr: number,
+  formHandle: number,
+  pageCount: number
+): void {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const m = mod as any
+  for (let pi = 0; pi < pageCount; pi++) {
+    const pagePtr = m.FPDF_LoadPage(docPtr, pi) as number
+    if (!pagePtr) continue
+    try {
+      const n = m.FPDFPage_GetAnnotCount(pagePtr) as number
+      for (let ai = 0; ai < n; ai++) {
+        const annot = m.FPDFPage_GetAnnot(pagePtr, ai) as number
+        if (!annot) continue
+        try {
+          if ((m.FPDFAnnot_GetSubtype(annot) as number) !== 20) continue
+          const flags = m.FPDFAnnot_GetFormFieldFlags(formHandle, annot) as number
+          if (flags & FPDF_FORMFLAG_READONLY) {
+            m.FPDFAnnot_SetFormFieldFlags(formHandle, annot, flags & ~FPDF_FORMFLAG_READONLY)
+          }
+        } finally {
+          m.FPDFPage_CloseAnnot(annot)
+        }
+      }
+    } finally {
+      m.FPDF_ClosePage(pagePtr)
+    }
+  }
 }
 
 export function disposeFormState(mod: WrappedPdfiumModule, st: FormState): void {

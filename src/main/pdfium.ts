@@ -150,17 +150,9 @@ export async function openDoc(id: string, bytes: Uint8Array): Promise<number> {
   }
 
   const form = initFormState(mod, docPtr)
-  const initial = form.hasForm ? readFieldValues(mod, form, pageCount) : []
-  if (form.hasForm) {
-    console.log(`[forms] open: ${initial.length} fields`)
-    // Only log fields whose name contains "Number" — quickly narrows in on
-    // the un-highlighted widgets the user is asking about.
-    for (const f of initial) {
-      if (!/number/i.test(f.name)) continue
-      console.log(`  ${f.type} flags=0x${(f.flags ?? 0).toString(16)} "${f.name}" = ${JSON.stringify(f.value)}`)
-    }
-  }
-  const baseline = form.hasForm ? new Map(initial.map((f) => [f.name, f.value])) : null
+  const baseline = form.hasForm
+    ? new Map(readFieldValues(mod, form, pageCount).map((f) => [f.name, f.value]))
+    : null
   docs.set(id, {
     docPtr,
     bytesPtr,
