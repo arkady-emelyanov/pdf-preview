@@ -82,11 +82,14 @@ export function FormLayer({
         if (canvas.hasPointerCapture(e.pointerId)) canvas.releasePointerCapture(e.pointerId)
         const { cx, cy } = localCoords(e)
         const { x, y } = canvasToPagePt(cx, cy)
-        void window.pdf.formEvent(sourceId, sourceIndex, { kind: 'up', pageX: x, pageY: y })
+        // Main does a fresh field-value snapshot after PDFium processes
+        // the event and returns whether anything differs from the baseline,
+        // so a checkbox flip dirties + flipping it back cleans, without any
+        // optimistic guessing here.
+        void window.pdf
+          .formEvent(sourceId, sourceIndex, { kind: 'up', pageX: x, pageY: y })
+          .then(setFormDirty)
         bumpFormRevision(sourceId, sourceIndex)
-        // Clicks alone (e.g., checkbox toggles) change form state; mark
-        // the doc dirty so Save is offered.
-        setFormDirty(true)
       }}
       onKeyDown={(e) => {
         // Let app shortcuts win for modifier combos (Ctrl+S etc.); keys.ts
@@ -98,28 +101,22 @@ export function FormLayer({
         // FORM_OnKeyDown. Send them as chars.
         const asChar = e.key === 'Backspace' ? 8 : e.key === 'Delete' ? 0x7f : null
         if (asChar !== null) {
-          void window.pdf.formEvent(sourceId, sourceIndex, {
-            kind: 'char',
-            charCode: asChar,
-            mods: 0
-          })
+          void window.pdf
+            .formEvent(sourceId, sourceIndex, { kind: 'char', charCode: asChar, mods: 0 })
+            .then(setFormDirty)
           bumpFormRevision(sourceId, sourceIndex)
-          setFormDirty(true)
           e.preventDefault()
           return
         }
         const vkey = winVKey(e.key)
         if (vkey !== null) {
-          void window.pdf.formEvent(sourceId, sourceIndex, {
-            kind: 'keydown',
-            vkey,
-            mods: modBits(e)
-          })
+          // Navigation keys (arrows / Home / etc.) reach main but won't
+          // change any field value, so the value-comparison comes back
+          // false — dirty stays clean exactly as the user expects.
+          void window.pdf
+            .formEvent(sourceId, sourceIndex, { kind: 'keydown', vkey, mods: modBits(e) })
+            .then(setFormDirty)
           bumpFormRevision(sourceId, sourceIndex)
-          // Navigation keys (arrows / Home / etc.) don't change content but
-          // they're cheap to flag; tradeoff: false positives if a user only
-          // navigates without editing. Worth it for the simpler model.
-          setFormDirty(true)
           e.preventDefault()
           return
         }
@@ -127,13 +124,10 @@ export function FormLayer({
         if (e.key.length === 1) {
           const cp = e.key.codePointAt(0) ?? 0
           if (cp > 0) {
-            void window.pdf.formEvent(sourceId, sourceIndex, {
-              kind: 'char',
-              charCode: cp,
-              mods: 0
-            })
+            void window.pdf
+              .formEvent(sourceId, sourceIndex, { kind: 'char', charCode: cp, mods: 0 })
+              .then(setFormDirty)
             bumpFormRevision(sourceId, sourceIndex)
-            setFormDirty(true)
             e.preventDefault()
           }
         }

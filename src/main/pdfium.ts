@@ -59,6 +59,13 @@ interface OpenDoc {
    * keep its handle until the doc closes.
    */
   pageCache: Map<number, number>
+  /**
+   * Snapshot of every AcroForm field's value at open-time (or after the
+   * most recent save). `formDirty` flips by comparing the live values
+   * against this. Refreshed by `refreshFormBaseline` after a successful
+   * save. `null` for docs without a form.
+   */
+  formBaseline: Map<string, string> | null
 }
 
 const docs = new Map<string, OpenDoc>()
@@ -142,8 +149,42 @@ export async function openDoc(id: string, bytes: Uint8Array): Promise<number> {
   }
 
   const form = initFormState(mod, docPtr)
-  docs.set(id, { docPtr, bytesPtr, pageCount, pageSizes, form, pageCache: new Map() })
+  const baseline = form.hasForm
+    ? new Map(readFieldValues(mod, form, pageCount).map((f) => [f.name, f.value]))
+    : null
+  docs.set(id, {
+    docPtr,
+    bytesPtr,
+    pageCount,
+    pageSizes,
+    form,
+    pageCache: new Map(),
+    formBaseline: baseline
+  })
   return pageCount
+}
+
+/** Refresh the saved-value snapshot after a successful save. */
+export async function refreshFormBaseline(id: string): Promise<void> {
+  const d = docs.get(id)
+  if (!d || !d.form.hasForm) return
+  const mod = await getModule()
+  d.formBaseline = new Map(readFieldValues(mod, d.form, d.pageCount).map((f) => [f.name, f.value]))
+}
+
+/** Compute whether any form field's current value differs from the baseline.
+ *  Returns false when the doc has no form. */
+export async function computeFormDirty(id: string): Promise<boolean> {
+  const d = docs.get(id)
+  if (!d || !d.form.hasForm || !d.formBaseline) return false
+  const mod = await getModule()
+  const current = readFieldValues(mod, d.form, d.pageCount)
+  if (current.length !== d.formBaseline.size) return true
+  for (const f of current) {
+    const orig = d.formBaseline.get(f.name)
+    if (orig === undefined || orig !== f.value) return true
+  }
+  return false
 }
 
 /** Load a page through the per-doc cache. Stays alive until the doc closes,
@@ -325,12 +366,12 @@ export async function dispatchFormEvent(
     | { kind: 'down' | 'up' | 'move'; pageX: number; pageY: number }
     | { kind: 'char'; charCode: number; mods: number }
     | { kind: 'keydown'; vkey: number; mods: number }
-): Promise<void> {
+): Promise<boolean> {
   const d = docs.get(id)
-  if (!d || !d.form.hasForm || d.form.isXFA) return
+  if (!d || !d.form.hasForm || d.form.isXFA) return false
   const mod = await getModule()
   const pagePtr = loadCachedPage(mod, d, pageIndex)
-  if (!pagePtr) return
+  if (!pagePtr) return false
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const m = mod as any
   switch (ev.kind) {
@@ -354,6 +395,10 @@ export async function dispatchFormEvent(
       forwardKeyDown(mod, d.form, pagePtr, ev.vkey, ev.mods)
       break
   }
+  // Skip the value-comparison pass on pure movement events — they can't
+  // change form values, and `move` fires on every pointer wiggle.
+  if (ev.kind === 'move') return false
+  return await computeFormDirty(id)
 }
 
 export async function getPageText(id: string, pageIndex: number): Promise<string | null> {

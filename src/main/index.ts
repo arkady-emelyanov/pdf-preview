@@ -24,7 +24,8 @@ import {
   getFormInfo,
   getFormFieldValues,
   dispatchFormEvent,
-  saveDocViaPdfium
+  saveDocViaPdfium,
+  refreshFormBaseline
 } from './pdfium'
 import type { FormEvent } from '../shared/ipc'
 import type { VirtualPage as VP } from '../shared/edit'
@@ -180,6 +181,11 @@ app.whenReady().then(() => {
         // Reopen primary so PDFium picks up the new file for renders.
         const bytes = await readFile(destId)
         await openDoc(destId, bytes)
+        // PDFium-fast-path saves keep the same doc handle; the pdf-lib
+        // path re-opens above. Either way the in-memory form values are
+        // now the saved truth — reset the baseline so further edits
+        // re-trigger dirty.
+        await refreshFormBaseline(destId)
         return { ok: true }
       } catch (e) {
         return { ok: false, error: String((e as Error).message ?? e) }
@@ -208,6 +214,7 @@ app.whenReady().then(() => {
         : `${res.filePath}.pdf`
       try {
         await routeSave(sources, dest, pages, null)
+        await refreshFormBaseline(dest)
         return { ok: true, path: dest }
       } catch (e) {
         return { ok: false, error: String((e as Error).message ?? e) }

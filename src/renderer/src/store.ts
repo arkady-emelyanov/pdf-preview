@@ -303,7 +303,7 @@ export const useStore = create<State>((set, get) => ({
     if (pagesEqual(next, s.pages)) return
     const undoStack = pushUndo(s.undoStack, s.pages)
     set({ pages: next, undoStack, redoStack: [] })
-    window.pdf.setDirty(isDirty(next, s.savedPages))
+    window.pdf.setDirty(isDirty(next, s.savedPages) || s.formDirty)
   },
 
   deleteSelection: () => {
@@ -321,7 +321,7 @@ export const useStore = create<State>((set, get) => ({
       selection: new Set(),
       currentPage: newCurrent
     })
-    window.pdf.setDirty(isDirty(next, s.savedPages))
+    window.pdf.setDirty(isDirty(next, s.savedPages) || s.formDirty)
   },
 
   movePages: (indices, target) => {
@@ -344,7 +344,7 @@ export const useStore = create<State>((set, get) => ({
       selection: newSelection,
       currentPage: newCurrent
     })
-    window.pdf.setDirty(isDirty(next, s.savedPages))
+    window.pdf.setDirty(isDirty(next, s.savedPages) || s.formDirty)
   },
 
   insertPages: (inserts, target) => {
@@ -361,7 +361,7 @@ export const useStore = create<State>((set, get) => ({
       ),
       currentPage: target
     })
-    window.pdf.setDirty(isDirty(next, s.savedPages))
+    window.pdf.setDirty(isDirty(next, s.savedPages) || s.formDirty)
   },
 
   setTool: (t) =>
@@ -410,7 +410,7 @@ export const useStore = create<State>((set, get) => ({
       redoStack: [],
       selectedAnnotation: { page, id: a.id }
     })
-    window.pdf.setDirty(isDirty(next, s.savedPages))
+    window.pdf.setDirty(isDirty(next, s.savedPages) || s.formDirty)
   },
 
   updateAnnotation: (page, id, patch) => {
@@ -421,7 +421,7 @@ export const useStore = create<State>((set, get) => ({
     )
     const undoStack = pushUndo(s.undoStack, s.pages)
     set({ pages: next, undoStack, redoStack: [] })
-    window.pdf.setDirty(isDirty(next, s.savedPages))
+    window.pdf.setDirty(isDirty(next, s.savedPages) || s.formDirty)
   },
 
   deleteAnnotation: (page, id) => {
@@ -434,7 +434,7 @@ export const useStore = create<State>((set, get) => ({
     const sel =
       s.selectedAnnotation && s.selectedAnnotation.id === id ? null : s.selectedAnnotation
     set({ pages: next, undoStack, redoStack: [], selectedAnnotation: sel })
-    window.pdf.setDirty(isDirty(next, s.savedPages))
+    window.pdf.setDirty(isDirty(next, s.savedPages) || s.formDirty)
   },
 
   setSelectedAnnotation: (sel) => set({ selectedAnnotation: sel }),
@@ -520,7 +520,7 @@ export const useStore = create<State>((set, get) => ({
       i === page ? { ...vp, annotations: updAnnFn(vp.annotations, id, patch) } : vp
     )
     set({ pages: next })
-    window.pdf.setDirty(isDirty(next, s.savedPages))
+    window.pdf.setDirty(isDirty(next, s.savedPages) || s.formDirty)
   },
 
   undo: () => {
@@ -530,7 +530,7 @@ export const useStore = create<State>((set, get) => ({
     const undoStack = s.undoStack.slice(0, -1)
     const redoStack = [...s.redoStack, s.pages]
     set({ pages: prev, undoStack, redoStack, selection: new Set(), selectedAnnotation: null })
-    window.pdf.setDirty(isDirty(prev, s.savedPages))
+    window.pdf.setDirty(isDirty(prev, s.savedPages) || s.formDirty)
   },
 
   redo: () => {
@@ -540,7 +540,7 @@ export const useStore = create<State>((set, get) => ({
     const redoStack = s.redoStack.slice(0, -1)
     const undoStack = pushUndo(s.undoStack, s.pages)
     set({ pages: next, undoStack, redoStack, selection: new Set(), selectedAnnotation: null })
-    window.pdf.setDirty(isDirty(next, s.savedPages))
+    window.pdf.setDirty(isDirty(next, s.savedPages) || s.formDirty)
   },
 
   markSaved: () => {
@@ -569,8 +569,14 @@ export const useStore = create<State>((set, get) => ({
     }),
   formDirty: false,
   setFormDirty: (b) => {
+    const s = get()
+    if (s.formDirty === b) return
     set({ formDirty: b })
-    if (b) window.pdf.setDirty(true)
+    // Combined dirty = page-graph differs from saved snapshot OR form
+    // values differ from baseline. We push the combined value so going
+    // clean (e.g., user undoes their typed character) also clears the
+    // title-bar bullet.
+    window.pdf.setDirty(isDirty(s.pages, s.savedPages) || b)
   },
 
   sourcePaths: () => {
