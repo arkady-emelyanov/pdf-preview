@@ -10,7 +10,13 @@ import {
   type PDFPage
 } from 'pdf-lib'
 import type { VirtualPage } from '../shared/edit'
-import { lineBBox, parseHexColor, type Annotation } from '../shared/annotations'
+import {
+  NOTE_SIZE_PT,
+  lineBBox,
+  parseHexColor,
+  type Annotation
+} from '../shared/annotations'
+import { PDFBool } from 'pdf-lib'
 
 /**
  * Bake a (possibly multi-source) virtual-page edit graph onto disk via pdf-lib.
@@ -88,9 +94,12 @@ function writeAnnotations(page: PDFPage, anns: Annotation[]): void {
   const arr = existing instanceof PDFArray ? existing : ctx.obj([])
 
   for (const a of anns) {
-    const rgb = parseHexColor(a.stroke) ?? [0.8, 0.2, 0.2]
+    // Notes don't have a stroke — `rgb` is unused on that branch (it derives
+    // its color from `a.color` instead). Compute lazily where it's actually
+    // needed to keep types honest.
     let dict
     if (a.kind === 'arrow' || a.kind === 'line') {
+      const rgb = parseHexColor(a.stroke) ?? [0.8, 0.2, 0.2]
       const bb = lineBBox(a)
       dict = ctx.obj({
         Type: 'Annot',
@@ -107,7 +116,28 @@ function writeAnnotations(page: PDFPage, anns: Annotation[]): void {
       })
       if (!a.author) dict.delete(PDFName.of('T'))
       dict.set(PDFName.of('CA'), PDFNumber.of(a.opacity))
+    } else if (a.kind === 'note') {
+      const x1 = a.x
+      const y1 = a.y
+      const x2 = a.x + NOTE_SIZE_PT
+      const y2 = a.y + NOTE_SIZE_PT
+      const noteRgb = parseHexColor(a.color) ?? [1, 0.88, 0.4]
+      dict = ctx.obj({
+        Type: 'Annot',
+        Subtype: 'Text',
+        Rect: [x1, y1, x2, y2],
+        Contents: PDFHexString.fromText(a.body),
+        Name: PDFName.of('Note'),
+        Open: PDFBool.False,
+        C: noteRgb,
+        F: 4,
+        M: PDFString.of(toPdfDate(new Date(a.modified))),
+        T: a.author ? PDFHexString.fromText(a.author) : undefined,
+        NM: PDFString.of(a.id)
+      })
+      if (!a.author) dict.delete(PDFName.of('T'))
     } else if (a.kind === 'rect' || a.kind === 'oval') {
+      const rgb = parseHexColor(a.stroke) ?? [0.8, 0.2, 0.2]
       const x1 = a.x
       const y1 = a.y
       const x2 = a.x + a.w

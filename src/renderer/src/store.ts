@@ -21,7 +21,7 @@ import {
   type BoxStyle
 } from '../../shared/annotations'
 
-export type Tool = 'select' | 'rect' | 'oval' | 'arrow' | 'line' | 'text'
+export type Tool = 'select' | 'rect' | 'oval' | 'arrow' | 'line' | 'text' | 'note'
 
 export interface PageChars {
   text: string

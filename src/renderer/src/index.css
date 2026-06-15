@@ -168,6 +168,28 @@ html, body, #root {
   mix-blend-mode: multiply;
   pointer-events: none;
 }
+.note-popover {
+  background: #fff;
+  border: 1px solid #444;
+  border-radius: 4px;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.35);
+  padding: 4px;
+}
+.note-popover-body {
+  width: 220px;
+  height: 96px;
+  background: #fffdf2;
+  color: #111;
+  border: 1px solid #ccc;
+  border-radius: 2px;
+  padding: 6px 8px;
+  font: 13px system-ui, -apple-system, sans-serif;
+  resize: both;
+  outline: none;
+}
+.note-popover-body:focus {
+  border-color: #3aa0ff;
+}
 .toolbar button[aria-pressed='true'] {
   background: #345;
   color: #cef;

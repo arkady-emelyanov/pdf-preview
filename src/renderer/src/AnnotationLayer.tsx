@@ -2,20 +2,24 @@ import { useEffect, useRef, useState } from 'react'
 import { useStore } from './store'
 import {
   HANDLES,
+  NOTE_SIZE_PT,
   arrowHeadSizePt,
   canvasToPoint,
   handleCenter,
   hitTest,
   isLine,
+  isNote,
   makeBox,
   makeLine,
+  makeNote,
   pointToCanvas,
   rectToCanvas,
   resizeRect,
   type Annotation,
   type BoxAnnotationBase,
   type HandlePos,
-  type LineAnnotation
+  type LineAnnotation,
+  type NoteAnnotation
 } from '../../shared/annotations'
 
 const HANDLE_SIZE_PX = 8
@@ -114,6 +118,58 @@ function drawBox(
     ctx.strokeRect(r.x, r.y, r.w, r.h)
   }
   ctx.globalAlpha = 1
+}
+
+function drawNote(
+  ctx: CanvasRenderingContext2D,
+  a: NoteAnnotation,
+  pageHeightPt: number,
+  scale: number
+): void {
+  // Anchor is the icon's bottom-left in PDF coords; convert that corner.
+  const tl = pointToCanvas(a.x, a.y + NOTE_SIZE_PT, pageHeightPt, scale)
+  const size = NOTE_SIZE_PT * scale
+  const fold = Math.max(4, size * 0.3)
+  // Sticky-note background.
+  ctx.fillStyle = a.color
+  ctx.beginPath()
+  ctx.moveTo(tl.cx, tl.cy)
+  ctx.lineTo(tl.cx + size - fold, tl.cy)
+  ctx.lineTo(tl.cx + size, tl.cy + fold)
+  ctx.lineTo(tl.cx + size, tl.cy + size)
+  ctx.lineTo(tl.cx, tl.cy + size)
+  ctx.closePath()
+  ctx.fill()
+  // Folded corner shadow.
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.15)'
+  ctx.beginPath()
+  ctx.moveTo(tl.cx + size - fold, tl.cy)
+  ctx.lineTo(tl.cx + size, tl.cy + fold)
+  ctx.lineTo(tl.cx + size - fold, tl.cy + fold)
+  ctx.closePath()
+  ctx.fill()
+  // Subtle outline so light-on-light pages still show the icon.
+  ctx.strokeStyle = 'rgba(0, 0, 0, 0.4)'
+  ctx.lineWidth = 1
+  ctx.beginPath()
+  ctx.moveTo(tl.cx, tl.cy)
+  ctx.lineTo(tl.cx + size - fold, tl.cy)
+  ctx.lineTo(tl.cx + size, tl.cy + fold)
+  ctx.lineTo(tl.cx + size, tl.cy + size)
+  ctx.lineTo(tl.cx, tl.cy + size)
+  ctx.closePath()
+  ctx.stroke()
+  // Body-preview dots — three short lines.
+  ctx.strokeStyle = 'rgba(0, 0, 0, 0.35)'
+  const pad = size * 0.18
+  const innerW = size - pad * 2 - fold * 0.4
+  for (let i = 0; i < 3; i++) {
+    const y = tl.cy + size * 0.45 + i * size * 0.16
+    ctx.beginPath()
+    ctx.moveTo(tl.cx + pad, y)
+    ctx.lineTo(tl.cx + pad + innerW, y)
+    ctx.stroke()
+  }
 }
 
 function drawArrow(
@@ -224,6 +280,7 @@ export function AnnotationLayer({
   const [hoverHandle, setHoverHandle] = useState<HandlePos | 'h1' | 'h2' | null>(null)
 
   const drawingTool = tool === 'rect' || tool === 'oval' || tool === 'arrow'
+  const noteTool = tool === 'note'
   const cssW = pageWidthPt * scale
   const cssH = pageHeightPt * scale
 
@@ -240,6 +297,7 @@ export function AnnotationLayer({
 
     for (const a of annotations) {
       if (isLine(a)) drawArrow(ctx, a, pageHeightPt, scale)
+      else if (isNote(a)) drawNote(ctx, a, pageHeightPt, scale)
       else drawBox(ctx, a, pageHeightPt, scale)
       if (selected && selected.page === virtualIndex && selected.id === a.id) {
         drawSelectionChrome(ctx, a, pageHeightPt, scale)
@@ -307,6 +365,16 @@ export function AnnotationLayer({
       }
       return
     }
+    if (isNote(a)) {
+      const tl = pointToCanvas(a.x, a.y + NOTE_SIZE_PT, pageH, sc)
+      const sz = NOTE_SIZE_PT * sc
+      ctx.strokeStyle = '#3aa0ff'
+      ctx.setLineDash([4, 3])
+      ctx.lineWidth = 1
+      ctx.strokeRect(tl.cx - 2, tl.cy - 2, sz + 4, sz + 4)
+      ctx.setLineDash([])
+      return
+    }
     const r = rectToCanvas(a, pageH, sc)
     ctx.strokeStyle = '#3aa0ff'
     ctx.setLineDash([4, 3])
@@ -339,10 +407,20 @@ export function AnnotationLayer({
       return
     }
 
+    if (noteTool) {
+      // Click drops a note with its bottom-left at the cursor, then selects it
+      // so the popover editor opens immediately.
+      const { x: ptX, y: ptY } = canvasToPoint(cx, cy, pageHeightPt, scale)
+      const note = makeNote({ x: ptX - NOTE_SIZE_PT / 2, y: ptY - NOTE_SIZE_PT / 2 })
+      addAnnotation(virtualIndex, note)
+      return
+    }
+
     // Select tool. Endpoint / corner handles on the selected annotation win first.
+    // Notes don't get handles — they're point-anchored, only drag-to-move.
     if (selected && selected.page === virtualIndex) {
       const sel = annotations.find((a) => a.id === selected.id)
-      if (sel) {
+      if (sel && !isNote(sel)) {
         if (isLine(sel)) {
           const end = hitLineEndpoint(sel, cx, cy, pageHeightPt, scale)
           if (end) {
@@ -460,7 +538,7 @@ export function AnnotationLayer({
     if (tool === 'select' && selected && selected.page === virtualIndex) {
       const sel = annotations.find((a) => a.id === selected.id)
       let h: HandlePos | 'h1' | 'h2' | null = null
-      if (sel) {
+      if (sel && !isNote(sel)) {
         if (isLine(sel)) {
           h = hitLineEndpoint(sel, cx, cy, pageHeightPt, scale)
         } else {
@@ -532,13 +610,14 @@ export function AnnotationLayer({
     return null
   }
 
-  const cursor = drawingTool
-    ? 'crosshair'
-    : hoverHandle === 'h1' || hoverHandle === 'h2'
+  const cursor =
+    drawingTool || noteTool
       ? 'crosshair'
-      : hoverHandle
-        ? HANDLE_CURSORS[hoverHandle]
-        : 'default'
+      : hoverHandle === 'h1' || hoverHandle === 'h2'
+        ? 'crosshair'
+        : hoverHandle
+          ? HANDLE_CURSORS[hoverHandle]
+          : 'default'
   return (
     <canvas
       ref={ref}
@@ -549,7 +628,8 @@ export function AnnotationLayer({
         width: cssW,
         height: cssH,
         cursor,
-        pointerEvents: drawingTool || annotations.length > 0 ? 'auto' : 'none'
+        pointerEvents:
+          drawingTool || noteTool || annotations.length > 0 ? 'auto' : 'none'
       }}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}

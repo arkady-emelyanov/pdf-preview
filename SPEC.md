@@ -152,8 +152,15 @@ twice.
   arrow/line. Resize ✅: 8 corner+edge handles on bbox shapes (drag-past-
   opposite flips cleanly); 2 endpoint handles on arrow/line let you drag
   either end independently. Rotate handle still planned.
-- **Sticky notes**: planned. Anchored to page coordinate. Click to expand;
-  collapsed icon by default. Author from `git config user.name` or OS user.
+- **Sticky notes** ✅: a separate `NoteAnnotation` (single anchor point + body
+  string + icon color — no bbox/stroke). Note tool (`N`) drops a yellow icon at
+  the cursor and immediately selects it; `<NotePopover>` opens a small
+  textarea editor next to the icon. Typing live-updates `body` via
+  `beginLiveEdit` + `liveUpdateAnnotation`, so one editing session collapses
+  into one undo entry. Drag-to-move works through the standard select tool;
+  notes don't get resize handles. Save writes `/Text` with `/Contents`,
+  `/Name /Note`, `/Open false`, `/C`. Author from `git config user.name` /
+  OS user is still planned.
 - **Text boxes**: planned. Free-floating text, font (3–4 bundled), size, color.
 - All annotations are selectable, moveable, deletable, undo/redo ✅
   (Ctrl+Z/Y). Select tool: click hit-tests in PDF coords, drag moves, drag a
@@ -166,7 +173,7 @@ twice.
   selected the panel edits it; otherwise it edits `toolDefaults` (sticky
   across documents), which the next drawn shape adopts. `Esc` returns to
   select tool and clears any annotation
-  selection; `R` Rect, `O` Oval, `A` Arrow, `V` Select.
+  selection; `R` Rect, `O` Oval, `A` Arrow, `N` Note, `T` Text, `V` Select.
 - Save bakes shapes as standard PDF annotation dicts via pdf-lib's low-level
   `context.obj` API: `/Square` for rect, `/Circle` for oval, `/Line` for
   arrow and line. Common fields: Subtype, Rect, C (stroke 0..1), CA (opacity),
@@ -372,7 +379,7 @@ window.pdf = {
 1. **M0 — Skeleton** ✅: Electron + Vite + React boilerplate, 1-window-per-doc with blank-window reuse, PDFium-WASM rendering to `<canvas>`, custom toolbar (no browser chrome), AppImage builds, drag-drop / double-click open.
 2. **M1 — Viewport + nav** ✅: virtualized rendering, thumbnail rail, page sync, zoom modes, Ctrl+F search with bbox highlights, full keyboard nav, system font mapper.
 3. **M2 — Page ops** ✅: rotate ✅, delete ✅, drag-reorder ✅, multi-select ✅, undo/redo with snapshot stacks ✅, dirty indicator ✅, Save / Save As / Export Selection As ✅ via pdf-lib bake, Insert-from-other-PDF ✅, Merge ✅ (both via multi-source `VirtualPage {sourceId, ...}` and a secondary-source registry in main). Sidecar crash recovery: deferred to M6.
-4. **M3 — Annotations** ◐: overlay canvas ✅, rectangle ✅ + oval ✅ + arrow ✅ + line ✅ (draw + select + move + resize/endpoint-drag ✅ + delete + undo/redo + `/Square` / `/Circle` / `/Line` write-back), inline style picker (color / width / fill) ✅. Remaining: rotate handle, sticky notes, text boxes.
+4. **M3 — Annotations** ◐: overlay canvas ✅, rectangle ✅ + oval ✅ + arrow ✅ + line ✅ (draw + select + move + resize/endpoint-drag ✅ + delete + undo/redo + `/Square` / `/Circle` / `/Line` write-back), inline style picker (color / width / fill) ✅, sticky notes ✅ (`/Text` write-back, popover editor). Remaining: rotate handle, free-text boxes.
 5. **M4 — Forms**: AcroForm read-back on save; XFA fallback path with banner.
 6. **M5 — Print**: CUPS pipeline, custom dialog, status.
 7. **M6 — Polish + AppImage release**: real icon, MIME registration, recent files, sidecar crash recovery, CI release pipeline.

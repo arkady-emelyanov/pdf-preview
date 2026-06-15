@@ -1,5 +1,5 @@
 import { useStore } from './store'
-import { isLine, type BoxStyle } from '../../shared/annotations'
+import { isLine, isNote, type BoxStyle } from '../../shared/annotations'
 
 const SWATCHES = ['#d33', '#2576d3', '#2da44e', '#1a1a1a']
 const WIDTHS = [1, 2, 4]
@@ -21,12 +21,15 @@ export function AnnotationProps(): JSX.Element | null {
   const selAnn =
     sel && pages[sel.page]?.annotations?.find((a) => a.id === sel.id)
   const drawingTool = tool === 'rect' || tool === 'oval' || tool === 'arrow' || tool === 'line'
+  // Notes don't use the stroke/width/fill model — their popover is their UI.
+  // Hide the panel when a note is selected or the note tool is active.
+  if (selAnn && isNote(selAnn)) return null
   if (!selAnn && !drawingTool) return null
 
   const selIsLine = !!selAnn && isLine(selAnn)
   const supportsFill = !!selAnn ? !selIsLine : tool === 'rect' || tool === 'oval'
 
-  const current: BoxStyle = selAnn
+  const current: BoxStyle = selAnn && !isNote(selAnn)
     ? {
         stroke: selAnn.stroke,
         strokeWidth: selAnn.strokeWidth,

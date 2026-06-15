@@ -9,12 +9,15 @@ import {
   handleCenter,
   hitTest,
   hitTestLine,
+  hitTestNote,
   hitTestOval,
   hitTestRect,
   lineBBox,
   makeBox,
   makeLine,
+  makeNote,
   makeRect,
+  NOTE_SIZE_PT,
   parseHexColor,
   pointToCanvas,
   rectToCanvas,
@@ -244,6 +247,40 @@ describe('annotationsEqual across kinds', () => {
     const a = makeLine('arrow', { x1: 0, y1: 0, x2: 10, y2: 10 })
     const b = { ...a, kind: 'line' as const }
     expect(annotationsEqual([a], [b])).toBe(false)
+  })
+})
+
+describe('makeNote + hit-test', () => {
+  it('makeNote defaults body to empty and color to yellow', () => {
+    const n = makeNote({ x: 100, y: 200 })
+    expect(n.kind).toBe('note')
+    expect(n.body).toBe('')
+    expect(n.color).toBe('#ffe066')
+    expect(n.x).toBe(100)
+    expect(n.y).toBe(200)
+  })
+
+  it('hitTestNote returns true within the icon bbox + tolerance', () => {
+    const n = makeNote({ x: 0, y: 0 })
+    expect(hitTestNote(n, 5, 5, 0)).toBe(true)
+    expect(hitTestNote(n, NOTE_SIZE_PT - 1, NOTE_SIZE_PT - 1, 0)).toBe(true)
+    expect(hitTestNote(n, NOTE_SIZE_PT + 10, 0, 0)).toBe(false)
+    expect(hitTestNote(n, NOTE_SIZE_PT + 2, 0, 4)).toBe(true)
+  })
+
+  it('hitTest dispatches notes through to hitTestNote', () => {
+    const n = makeNote({ x: 100, y: 100 })
+    expect(hitTest(n, 110, 110)).toBe(true)
+    expect(hitTest(n, 5, 5)).toBe(false)
+  })
+
+  it('annotationsEqual notes detects body and color changes', () => {
+    const a = makeNote({ x: 0, y: 0, body: 'hi', color: '#aaa' })
+    const sameId = (o: typeof a, patch: Partial<typeof a>): typeof a => ({ ...o, ...patch })
+    expect(annotationsEqual([a], [a])).toBe(true)
+    expect(annotationsEqual([a], [sameId(a, { body: 'bye' })])).toBe(false)
+    expect(annotationsEqual([a], [sameId(a, { color: '#bbb' })])).toBe(false)
+    expect(annotationsEqual([a], [sameId(a, { x: 5 })])).toBe(false)
   })
 })
 

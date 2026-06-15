@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PDFArray, PDFDict, PDFDocument, PDFName, StandardFonts, degrees } from 'pdf-lib'
 import { saveDoc } from '../src/main/save'
-import { makeBox, makeLine, makeRect } from '../src/shared/annotations'
+import { makeBox, makeLine, makeNote, makeRect } from '../src/shared/annotations'
 
 let workDir: string
 let inputA: string
@@ -213,6 +213,47 @@ describe('saveDoc (annotations)', () => {
     expect(ic.size()).toBe(3)
     expect(Number(ic.lookup(0).toString())).toBeCloseTo(1, 5)
     expect(Number(ic.lookup(1).toString())).toBeCloseTo(0, 5)
+  })
+
+  it('writes a /Text annotation for a sticky note with body in /Contents', async () => {
+    const out = join(workDir, 'with-note.pdf')
+    const ann = makeNote({ x: 100, y: 100, body: 'Review this paragraph', color: '#ff8800' })
+    await saveDoc({ [inputA]: inputA }, out, [
+      { sourceId: inputA, sourceIndex: 0, rotation: 0, annotations: [ann] }
+    ])
+    const doc = await PDFDocument.load(await readFile(out))
+    const arr = doc.getPage(0).node.Annots() as PDFArray
+    const dict = arr.lookup(0, PDFDict)
+    expect(dict.lookup(PDFName.of('Subtype'))?.toString()).toBe('/Text')
+    expect(dict.lookup(PDFName.of('Name'))?.toString()).toBe('/Note')
+    // /Contents stores the body. pdf-lib's PDFHexString decodes to text via decodeText().
+    const contents = dict.lookup(PDFName.of('Contents'))
+    expect(contents).toBeDefined()
+    // The decoded text round-trips through PDFHexString.
+    // toString() on a PDFHexString gives the raw <hex>; decode it manually.
+    const raw = contents!.toString()
+    expect(raw.startsWith('<') && raw.endsWith('>')).toBe(true)
+    const hex = raw.slice(1, -1)
+    // BOM-prefixed UTF-16BE — pdf-lib's PDFHexString.fromText output.
+    const bytes = Buffer.from(hex, 'hex')
+    expect(bytes[0]).toBe(0xfe)
+    expect(bytes[1]).toBe(0xff)
+    // PDF stores UTF-16BE; Node's toString('utf16le') expects little-endian, so
+    // swap byte pairs first.
+    const body = bytes.subarray(2)
+    const swapped = Buffer.alloc(body.length)
+    for (let i = 0; i + 1 < body.length; i += 2) {
+      swapped[i] = body[i + 1]
+      swapped[i + 1] = body[i]
+    }
+    expect(swapped.toString('utf16le')).toBe('Review this paragraph')
+    // Rect is icon-sized.
+    const rect = dict.lookup(PDFName.of('Rect'), PDFArray)
+    expect(Number(rect.lookup(0).toString())).toBe(100)
+    expect(Number(rect.lookup(1).toString())).toBe(100)
+    // Color (orange) — first channel near 1.
+    const c = dict.lookup(PDFName.of('C'), PDFArray)
+    expect(Number(c.lookup(0).toString())).toBeCloseTo(1, 5)
   })
 
   it('page without annotations has 0-length or absent /Annots', async () => {

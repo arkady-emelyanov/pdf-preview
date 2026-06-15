@@ -8,7 +8,11 @@
  * add their own envelopes later but follow the same id/style/timestamp pattern.
  */
 
-export type AnnotationKind = 'rect' | 'oval' | 'arrow' | 'line'
+export type AnnotationKind = 'rect' | 'oval' | 'arrow' | 'line' | 'note'
+
+/** Visual size of a sticky-note icon, in PDF points. Hit-test and save Rect
+ *  also use this so the icon size in the saved PDF matches what we drew. */
+export const NOTE_SIZE_PT = 18
 
 /** Shared shape for any bbox-style annotation (rect, oval). */
 export interface BoxAnnotationBase {
@@ -58,7 +62,26 @@ export interface LineAnnotation {
   modified: number
 }
 
-export type Annotation = RectAnnotation | OvalAnnotation | LineAnnotation
+/**
+ * Sticky note. Anchored to a single point (bottom-left of a NOTE_SIZE_PT icon),
+ * carries a body string for the editable note text. No bbox style — sticky
+ * notes use a simple background color (the icon fill).
+ */
+export interface NoteAnnotation {
+  id: string
+  kind: 'note'
+  /** Bottom-left of the icon, in PDF page points. */
+  x: number
+  y: number
+  body: string
+  /** Icon fill color (CSS hex). */
+  color: string
+  author?: string
+  created: number
+  modified: number
+}
+
+export type Annotation = RectAnnotation | OvalAnnotation | LineAnnotation | NoteAnnotation
 
 export interface BoxStyle {
   stroke: string
@@ -104,6 +127,23 @@ export function makeRect(
   init: { x: number; y: number; w: number; h: number } & Partial<BoxStyle> & { author?: string }
 ): RectAnnotation {
   return makeBox('rect', init) as RectAnnotation
+}
+
+export function makeNote(
+  init: { x: number; y: number } & Partial<Pick<NoteAnnotation, 'body' | 'color' | 'author'>>
+): NoteAnnotation {
+  const now = Date.now()
+  return {
+    id: newId(),
+    kind: 'note',
+    x: init.x,
+    y: init.y,
+    body: init.body ?? '',
+    color: init.color ?? '#ffe066',
+    author: init.author,
+    created: now,
+    modified: now
+  }
 }
 
 export function makeLine(
@@ -204,6 +244,26 @@ export function isLine(a: Annotation): a is LineAnnotation {
   return a.kind === 'arrow' || a.kind === 'line'
 }
 
+export function isNote(a: Annotation): a is NoteAnnotation {
+  return a.kind === 'note'
+}
+
+/** Hit-test a note via its icon's PDF-point bbox at (x, y, NOTE_SIZE, NOTE_SIZE). */
+export function hitTestNote(
+  a: NoteAnnotation,
+  ptX: number,
+  ptY: number,
+  tolerancePt = 4
+): boolean {
+  const t = tolerancePt
+  return (
+    ptX >= a.x - t &&
+    ptX <= a.x + NOTE_SIZE_PT + t &&
+    ptY >= a.y - t &&
+    ptY <= a.y + NOTE_SIZE_PT + t
+  )
+}
+
 export function annotationsEqual(
   a: Annotation[] | undefined,
   b: Annotation[] | undefined
@@ -216,12 +276,17 @@ export function annotationsEqual(
     const y = lb[i]
     if (x.id !== y.id) return false
     if (x.kind !== y.kind) return false
-    if (x.stroke !== y.stroke) return false
-    if (x.strokeWidth !== y.strokeWidth) return false
-    if (x.opacity !== y.opacity) return false
     if (isLine(x) && isLine(y)) {
+      if (x.stroke !== y.stroke || x.strokeWidth !== y.strokeWidth) return false
+      if (x.opacity !== y.opacity) return false
       if (x.x1 !== y.x1 || x.y1 !== y.y1 || x.x2 !== y.x2 || x.y2 !== y.y2) return false
-    } else if (!isLine(x) && !isLine(y)) {
+    } else if (isNote(x) && isNote(y)) {
+      if (x.x !== y.x || x.y !== y.y) return false
+      if (x.body !== y.body) return false
+      if (x.color !== y.color) return false
+    } else if (!isLine(x) && !isLine(y) && !isNote(x) && !isNote(y)) {
+      if (x.stroke !== y.stroke || x.strokeWidth !== y.strokeWidth) return false
+      if (x.opacity !== y.opacity) return false
       if (x.x !== y.x || x.y !== y.y || x.w !== y.w || x.h !== y.h) return false
       if (x.fill !== y.fill) return false
     }
@@ -357,6 +422,7 @@ export function hitTestOval(
 
 export function hitTest(a: Annotation, ptX: number, ptY: number, tolerancePt = 4): boolean {
   if (isLine(a)) return hitTestLine(a, ptX, ptY, tolerancePt + 2)
+  if (isNote(a)) return hitTestNote(a, ptX, ptY, tolerancePt)
   if (a.kind === 'oval') return hitTestOval(a, ptX, ptY, tolerancePt)
   return hitTestRect(a, ptX, ptY, tolerancePt)
 }
