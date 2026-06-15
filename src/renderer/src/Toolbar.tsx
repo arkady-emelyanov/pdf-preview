@@ -215,6 +215,13 @@ export function Toolbar(): JSX.Element {
           </button>
           <div className="divider" />
           <button
+            onClick={() => setTool('note')}
+            aria-pressed={tool === 'note'}
+            title="Sticky note (N)"
+          >
+            ✎︎
+          </button>
+          <button
             onClick={() => setTool('rect')}
             aria-pressed={tool === 'rect'}
             title="Rectangle annotation (R)"
@@ -234,13 +241,6 @@ export function Toolbar(): JSX.Element {
             title="Arrow annotation (A)"
           >
             ↗
-          </button>
-          <button
-            onClick={() => setTool('note')}
-            aria-pressed={tool === 'note'}
-            title="Sticky note (N)"
-          >
-            ✎
           </button>
           <button
             onClick={() => setTool('freetext')}
