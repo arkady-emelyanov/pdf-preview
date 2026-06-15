@@ -1,5 +1,12 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
-import type { DocInfo, PageRect, RenderedPageMsg, SourceInfo } from '../shared/ipc'
+import type {
+  DocInfo,
+  FormEvent,
+  FormFieldValue,
+  PageRect,
+  RenderedPageMsg,
+  SourceInfo
+} from '../shared/ipc'
 import type { VirtualPage } from '../shared/edit'
 
 type MenuChannel =
@@ -51,6 +58,10 @@ const api = {
   rebindPath: (newPath: string): Promise<SourceInfo | null> =>
     ipcRenderer.invoke('pdf:rebindPath', newPath),
   pickFiles: (multi: boolean): Promise<string[]> => ipcRenderer.invoke('pdf:pickFiles', multi),
+  formEvent: (sourceId: string, pageIndex: number, ev: FormEvent): Promise<void> =>
+    ipcRenderer.invoke('pdf:formEvent', sourceId, pageIndex, ev),
+  formFieldValues: (sourceId: string): Promise<FormFieldValue[]> =>
+    ipcRenderer.invoke('pdf:formFieldValues', sourceId),
   save: (
     sources: Record<string, string>,
     destId: string,

@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import type { PageRect } from '../../shared/ipc'
+import { useStore } from './store'
 import { AnnotationLayer } from './AnnotationLayer'
+import { FormLayer } from './FormLayer'
 import { NotePopover } from './NotePopover'
 import { FreeTextEditor } from './FreeTextEditor'
 import { TextSelectionLayer } from './TextSelectionLayer'
@@ -35,6 +37,9 @@ export function PdfPage({
 }: Props): JSX.Element {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [rendered, setRendered] = useState(false)
+  const formRev = useStore(
+    (s) => s.formRevisions[`${sourceId}|${sourceIndex}`] ?? 0
+  )
 
   useEffect(() => {
     if (!visible) return
@@ -57,7 +62,7 @@ export function PdfPage({
     return () => {
       cancelled = true
     }
-  }, [sourceId, sourceIndex, rotation, scale, visible])
+  }, [sourceId, sourceIndex, rotation, scale, visible, formRev])
 
   useEffect(() => {
     setRendered(false)
@@ -107,6 +112,15 @@ export function PdfPage({
       {rotation === 0 && (
         <FreeTextEditor
           virtualIndex={virtualIndex}
+          pageHeightPt={pageHeightPt}
+          scale={scale}
+        />
+      )}
+      {rotation === 0 && (
+        <FormLayer
+          sourceId={sourceId}
+          sourceIndex={sourceIndex}
+          pageWidthPt={pageWidthPt}
           pageHeightPt={pageHeightPt}
           scale={scale}
         />

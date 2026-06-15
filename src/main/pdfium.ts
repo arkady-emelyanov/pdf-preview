@@ -12,6 +12,19 @@ import { fileURLToPath } from 'node:url'
 import { createRequire } from 'node:module'
 import { init as initPdfium, type WrappedPdfiumModule } from '@embedpdf/pdfium'
 import { buildFontIndex, installFontMapper, fontIndexSummary } from './fonts'
+import {
+  disposeFormState,
+  drawForms,
+  forwardChar,
+  forwardKeyDown,
+  forwardPointerEvent,
+  initFormState,
+  notifyPageClosed,
+  notifyPageLoaded,
+  readFieldValues,
+  type FieldValue,
+  type FormState
+} from './forms'
 
 const FPDF_REVERSE_BYTE_ORDER = 0x10
 const FPDFBitmap_BGRA = 4
@@ -38,6 +51,7 @@ interface OpenDoc {
   bytesPtr: number
   pageCount: number
   pageSizes: PageSize[]
+  form: FormState
 }
 
 const docs = new Map<string, OpenDoc>()
@@ -120,14 +134,68 @@ export async function openDoc(id: string, bytes: Uint8Array): Promise<number> {
     mod.FPDF_ClosePage(pagePtr)
   }
 
-  docs.set(id, { docPtr, bytesPtr, pageCount, pageSizes })
+  const form = initFormState(mod, docPtr)
+  docs.set(id, { docPtr, bytesPtr, pageCount, pageSizes, form })
   return pageCount
 }
 
 function closeDocInternal(mod: WrappedPdfiumModule, d: OpenDoc): void {
   const raw = em(mod)
+  disposeFormState(mod, d.form)
   mod.FPDF_CloseDocument(d.docPtr)
   raw.wasmExports.free(d.bytesPtr)
+}
+
+export function getFormInfo(id: string): { hasForm: boolean; isXFA: boolean } {
+  const d = docs.get(id)
+  if (!d) return { hasForm: false, isXFA: false }
+  return { hasForm: d.form.hasForm, isXFA: d.form.isXFA }
+}
+
+export async function getFormFieldValues(id: string): Promise<FieldValue[]> {
+  const d = docs.get(id)
+  if (!d) return []
+  const mod = await getModule()
+  return readFieldValues(mod, d.form, d.pageCount)
+}
+
+/**
+ * Save the doc through PDFium so form-field values that live in the in-memory
+ * form-fill state get baked into the file. Used by the save handler for
+ * un-reordered single-source form docs, where pdf-lib's copyPages would
+ * otherwise drop the /AcroForm dict.
+ */
+export async function saveDocViaPdfium(id: string, destPath: string): Promise<void> {
+  const d = docs.get(id)
+  if (!d) throw new Error(`unknown doc ${id}`)
+  const mod = await getModule()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const m = mod as any
+  const raw = em(mod)
+  // Flush any pending form-fill state into the doc before saving.
+  if (d.form.formHandle) m.FORM_ForceToKillFocus(d.form.formHandle)
+  const writer = m.PDFiumExt_OpenFileWriter() as number
+  if (!writer) throw new Error('PDFiumExt_OpenFileWriter failed')
+  try {
+    // SaveAsCopy flag 0 = full save.
+    const ok = m.PDFiumExt_SaveAsCopy(d.docPtr, writer) as number
+    if (!ok) throw new Error('PDFiumExt_SaveAsCopy failed')
+    const size = m.PDFiumExt_GetFileWriterSize(writer) as number
+    if (size <= 0) throw new Error('writer produced zero bytes')
+    const buf = raw.wasmExports.malloc(size)
+    if (!buf) throw new Error('malloc failed for writer buffer')
+    try {
+      m.PDFiumExt_GetFileWriterData(writer, buf, size)
+      const out = new Uint8Array(size)
+      out.set(raw.HEAPU8.subarray(buf, buf + size))
+      const { writeFile } = await import('node:fs/promises')
+      await writeFile(destPath, out)
+    } finally {
+      raw.wasmExports.free(buf)
+    }
+  } finally {
+    m.PDFiumExt_CloseFileWriter(writer)
+  }
 }
 
 export function closeDoc(id: string): void {
@@ -197,15 +265,69 @@ export async function renderPage(
     rotateParam,
     FPDF_REVERSE_BYTE_ORDER
   )
+  if (d.form.hasForm) {
+    notifyPageLoaded(mod, d.form, pagePtr)
+    drawForms(
+      mod,
+      d.form,
+      bitmap,
+      pagePtr,
+      0,
+      0,
+      width,
+      height,
+      rotateParam,
+      FPDF_REVERSE_BYTE_ORDER
+    )
+  }
 
   const data = new Uint8Array(bufSize)
   data.set(raw.HEAPU8.subarray(bufPtr, bufPtr + bufSize))
 
+  if (d.form.hasForm) notifyPageClosed(mod, d.form, pagePtr)
   mod.FPDFBitmap_Destroy(bitmap)
   raw.wasmExports.free(bufPtr)
   mod.FPDF_ClosePage(pagePtr)
 
   return { width, height, data }
+}
+
+/** Forward a single form-input event from the renderer through to PDFium.
+ *  Page is loaded fresh each call — cheap relative to the actual user input. */
+export async function dispatchFormEvent(
+  id: string,
+  pageIndex: number,
+  ev:
+    | { kind: 'down' | 'up' | 'move'; pageX: number; pageY: number }
+    | { kind: 'char'; charCode: number; mods: number }
+    | { kind: 'keydown'; vkey: number; mods: number }
+): Promise<void> {
+  const d = docs.get(id)
+  if (!d || !d.form.hasForm || d.form.isXFA) return
+  const mod = await getModule()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const m = mod as any
+  const pagePtr = m.FPDF_LoadPage(d.docPtr, pageIndex) as number
+  if (!pagePtr) return
+  try {
+    notifyPageLoaded(mod, d.form, pagePtr)
+    switch (ev.kind) {
+      case 'down':
+      case 'up':
+      case 'move':
+        forwardPointerEvent(mod, d.form, pagePtr, ev.kind, ev.pageX, ev.pageY)
+        break
+      case 'char':
+        forwardChar(mod, d.form, pagePtr, ev.charCode, ev.mods)
+        break
+      case 'keydown':
+        forwardKeyDown(mod, d.form, pagePtr, ev.vkey, ev.mods)
+        break
+    }
+    notifyPageClosed(mod, d.form, pagePtr)
+  } finally {
+    m.FPDF_ClosePage(pagePtr)
+  }
 }
 
 export async function getPageText(id: string, pageIndex: number): Promise<string | null> {

@@ -242,7 +242,7 @@ twice.
   `p4l-`-tagged annotations from each copied page before re-writing, so a
   save → load → save cycle keeps exactly one copy of each.
 
-### 4.3 Forms — *M4 planned*
+### 4.3 Forms — *M4 shipped*
 
 Goal: open a PDF with form fields, see the fields rendered with any
 previously-saved values, fill or change them in place, Save (or Save As) and
@@ -305,10 +305,27 @@ groups, listboxes), and we just forward DOM events and ask it to repaint.
   bitmaps baked into the page). We don't write back values; the banner
   documents the limitation. Re-authoring as AcroForm is out of scope.
 
-IPC + module changes implied for M4: a `forms.ts` module in main holding the
-PDFium form handle per doc; preload additions for `forwardFormEvent`,
-`getFormFieldValues`, `setFormFieldValue`; a `FormLayer` component in the
-renderer; and pdf-lib `PDFForm` writes during `save.ts`.
+**v1 punts:**
+- Save preserves form values only on the PDFium fast-path (single un-changed
+  source with an AcroForm). If the user reorders / rotates / inserts pages
+  or adds annotations, save falls back to pdf-lib's `copyPages` pipeline,
+  which doesn't carry `/AcroForm`; field values entered this session are
+  lost. A future revision could either copy `/AcroForm` onto the pdf-lib
+  output and re-set values via `PDFForm`, or apply the PDFium-saved bytes
+  as the base and run pdf-lib edits on top.
+- Form interaction is disabled when the host page has a non-zero edit-graph
+  rotation, same compromise the annotation layer makes.
+- XFA: rendered, not editable. `/AcroForm /XFA` detection bypasses the
+  input layer entirely.
+
+**Files involved:** `src/main/forms.ts` (FormFill env lifecycle, field-value
+read, event forwarders, FFLDraw helper); `src/main/pdfium.ts` (`OpenDoc`
+carries `FormState`, `renderPage` calls FFLDraw, `dispatchFormEvent`,
+`saveDocViaPdfium`); `src/main/index.ts` (form-event IPC handler,
+`routeSave` chooses PDFium vs pdf-lib); `src/preload/index.ts` (`formEvent`,
+`formFieldValues`); `src/renderer/src/FormLayer.tsx` (input capture +
+revision bump); `src/renderer/src/store.ts` (`formRevisions` map);
+`src/renderer/src/Viewport.tsx` (XFA banner).
 
 ### 4.4 Page operations (**implemented in M2 / M2.1 / M2.2**)
 
@@ -503,6 +520,6 @@ window.pdf = {
 2. **M1 — Viewport + nav** ✅: virtualized rendering, thumbnail rail, page sync, zoom modes, Ctrl+F search with bbox highlights, full keyboard nav, system font mapper.
 3. **M2 — Page ops** ✅: rotate ✅, delete ✅, drag-reorder ✅, multi-select ✅, undo/redo with snapshot stacks ✅, dirty indicator ✅, Save / Save As / Export Selection As ✅ via pdf-lib bake, Insert-from-other-PDF ✅, Merge ✅ (both via multi-source `VirtualPage {sourceId, ...}` and a secondary-source registry in main). Sidecar crash recovery: deferred to M6.
 4. **M3 — Annotations** ✅: overlay canvas, rectangle + oval + arrow + line (draw + select + move + resize/endpoint-drag + delete + undo/redo + `/Square` / `/Circle` / `/Line` write-back), inline style picker (color / width / fill), sticky notes (`/Text` write-back, popover editor), free-text boxes (`/FreeText` write-back with DA, in-place textarea editor, font/size/color props), rotate handle (rect / oval / freetext, free angle, Shift snaps to 15°; baked as a `/AP` `/N` Form XObject so external viewers see the rotation, with our own `/PdfRotation` key holding the exact radians for round-trip).
-5. **M4 — Forms**: AcroForm read-back on save; XFA fallback path with banner.
+5. **M4 — Forms** ✅: AcroForm round-trip via PDFium's FormFill env (`PDFiumExt_*` extension wraps the FORMFILLINFO callback boilerplate); FFLDraw layered on the existing bitmap pipeline so fields show their saved values; transparent `FormLayer` over each page forwards pointer + keyboard input through IPC to `FORM_OnLButton*` / `FORM_OnChar` / `FORM_OnKeyDown`; per-page form-revision bump in the store triggers re-render after each input. Save routes through PDFium's `SaveAsCopy` when the doc has an AcroForm and the edit graph is still the identity over the source — that path preserves the `/AcroForm` dict + field values our pdf-lib pipeline would otherwise drop. Once the user reorders / rotates / annotates, we fall back to the pdf-lib path; form-value preservation in that mode is a v1 punt. XFA documents render via PDFium's static appearance fallback and surface a banner; interaction is disabled.
 6. **M5 — Print**: CUPS pipeline, custom dialog, status.
 7. **M6 — Polish + AppImage release**: real icon, MIME registration, recent files, sidecar crash recovery, CI release pipeline.

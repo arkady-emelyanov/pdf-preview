@@ -396,3 +396,21 @@ html, body, #root {
   color: #cfe;
   user-select: none;
 }
+
+.xfa-banner {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  margin: 0 0 8px 0;
+  padding: 8px 12px;
+  background: #5a2a1a;
+  color: #fde6cf;
+  border-bottom: 1px solid #2a1208;
+  font-size: 13px;
+}
+
+.form-layer {
+  /* Keep content-editable from inserting characters into the DOM tree —
+     we intercept beforeinput and forward to PDFium; the DOM stays empty. */
+  caret-color: transparent;
+}

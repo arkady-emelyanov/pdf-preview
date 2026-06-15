@@ -23,7 +23,33 @@ export interface SourceInfo {
   /** Annotations parsed from the file on open, one array per source page.
    *  Only contains annotations whose `/NM` carries our `OWN_NM_PREFIX`. */
   annotations: Annotation[][]
+  /** True if the PDF has an AcroForm or XFA form. Drives FormLayer display. */
+  hasForm: boolean
+  /** True for XFA forms — we render the static fallback but disable
+   *  interaction and surface a banner. */
+  isXFA: boolean
 }
+
+export type FormFieldType =
+  | 'unknown'
+  | 'pushbutton'
+  | 'checkbox'
+  | 'radio'
+  | 'combobox'
+  | 'listbox'
+  | 'text'
+  | 'signature'
+
+export interface FormFieldValue {
+  name: string
+  type: FormFieldType
+  value: string
+}
+
+export type FormEvent =
+  | { kind: 'down' | 'up' | 'move'; pageX: number; pageY: number }
+  | { kind: 'char'; charCode: number; mods: number }
+  | { kind: 'keydown'; vkey: number; mods: number }
 
 export interface DocInfo {
   /** Primary file path; window key. */

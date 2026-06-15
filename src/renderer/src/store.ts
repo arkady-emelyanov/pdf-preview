@@ -170,6 +170,13 @@ interface State {
    *  current edit graph as the clean state. */
   renameDoc: (newPath: string, newName: string) => void
 
+  // Forms
+  /** Per-page render-revision keyed by `${sourceId}|${sourceIndex}`. PdfPage
+   *  reads this so it re-fetches the bitmap after a form-input event mutates
+   *  PDFium's in-memory state. */
+  formRevisions: Record<string, number>
+  bumpFormRevision: (sourceId: string, sourceIndex: number) => void
+
   // Helpers
   sourcePaths: () => Record<string, string>
   sourceSize: (sourceId: string, sourceIndex: number) => { width: number; height: number }
@@ -547,6 +554,13 @@ export const useStore = create<State>((set, get) => ({
     })
     window.pdf.setDirty(false)
   },
+
+  formRevisions: {},
+  bumpFormRevision: (sourceId, sourceIndex) =>
+    set((s) => {
+      const key = `${sourceId}|${sourceIndex}`
+      return { formRevisions: { ...s.formRevisions, [key]: (s.formRevisions[key] ?? 0) + 1 } }
+    }),
 
   sourcePaths: () => {
     const s = get()

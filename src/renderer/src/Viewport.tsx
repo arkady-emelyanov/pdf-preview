@@ -116,8 +116,18 @@ export function Viewport(): JSX.Element {
   // Always mount the scroll container once `doc` is set, even before `layout`
   // is computed — otherwise the ref would attach to an empty 0×0 div first and
   // the ResizeObserver would observe stale geometry.
+  // XFA banner: shown when any registered source is XFA, since interaction
+  // is disabled and form data won't round-trip.
+  const xfaSource = Object.values(sources).find((s) => s.isXFA)
+
   return (
     <div ref={scrollRef} className="viewport-scroll">
+      {xfaSource && (
+        <div className="xfa-banner" role="alert">
+          This form was authored in XFA. Field values display read-only and
+          will not be saved.
+        </div>
+      )}
       {layout && (
       <div className="pages-spacer" style={{ height: layout.totalHeight }}>
         {pages.map((vp, i) => {
