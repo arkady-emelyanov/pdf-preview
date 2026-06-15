@@ -183,7 +183,9 @@ app.whenReady().then(() => {
     if (!win || !ok) return
     approveClose(win)
     setWindowDirty(win, false)
-    win.destroy()
+    setImmediate(() => {
+      if (!win.isDestroyed()) win.close()
+    })
   })
 
   ipcMain.on('pdf:setDirty', (evt, dirty: boolean) => {

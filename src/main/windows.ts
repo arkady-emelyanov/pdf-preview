@@ -66,13 +66,17 @@ function buildWindow(title: string): BrowserWindow {
       .then(({ response }) => {
         if (response === 1) return // Cancel
         if (response === 0) {
-          // Don't save — destroy immediately.
+          // Don't save. Defer the close so the dialog's modal-parent state on
+          // Linux fully unwinds before we re-enter the close path — otherwise
+          // the window can hang in a half-closed state.
           closingApproved.add(win)
           dirtyByWindow.set(win, false)
-          win.destroy()
+          setImmediate(() => {
+            if (!win.isDestroyed()) win.close()
+          })
           return
         }
-        // Save — renderer will save and then call window.pdf.close() on success.
+        // Save — renderer will save and then trigger close via saveAndCloseResult.
         win.webContents.send('menu:saveAndClose')
       })
   })
