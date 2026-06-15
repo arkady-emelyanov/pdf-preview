@@ -8,7 +8,8 @@ import {
   pathForWindow,
   setWindowDirty,
   setWindowHasTextSelection,
-  approveClose
+  approveClose,
+  rebindWindowPath
 } from './windows'
 import { buildMenu, showOpenDialog } from './menu'
 import { realpathSync } from 'node:fs'
@@ -187,6 +188,32 @@ app.whenReady().then(() => {
       }
     }
   )
+
+  ipcMain.handle('pdf:rebindPath', async (evt, newPath: string) => {
+    const win = BrowserWindow.fromWebContents(evt.sender)
+    if (!win) return null
+    const key = canonical(newPath)
+    rebindWindowPath(win, key)
+    // Open the new file in PDFium under its own id so loadAnnotations can
+    // re-parse what we just wrote, and so subsequent operations that key off
+    // the new path (saveDoc reopen, future open) see a fresh document.
+    try {
+      const bytes = await readFile(key)
+      await openDoc(key, bytes)
+    } catch {
+      // ignore — saveDoc just wrote it; if the read fails, the rename still
+      // happened and the user can recover.
+    }
+    const pageSizes = getAllPageSizes(key) ?? []
+    const annotations = await loadAnnotations(key)
+    return {
+      sourceId: key,
+      name: basename(key),
+      pageCount: pageSizes.length,
+      pageSizes,
+      annotations
+    }
+  })
 
   ipcMain.on('pdf:saveAndCloseResult', (evt, ok: boolean) => {
     const win = BrowserWindow.fromWebContents(evt.sender)

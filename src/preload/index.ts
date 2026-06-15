@@ -35,6 +35,8 @@ const api = {
     ipcRenderer.invoke('pdf:findMatchRects', sourceId, pageIndex, query),
   registerSource: (path: string): Promise<SourceInfo> =>
     ipcRenderer.invoke('pdf:registerSource', path),
+  rebindPath: (newPath: string): Promise<SourceInfo | null> =>
+    ipcRenderer.invoke('pdf:rebindPath', newPath),
   pickFiles: (multi: boolean): Promise<string[]> => ipcRenderer.invoke('pdf:pickFiles', multi),
   save: (
     sources: Record<string, string>,

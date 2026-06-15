@@ -139,6 +139,9 @@ interface State {
 
   // Save sync
   markSaved: () => void
+  /** Re-point the doc identity at a new path after Save As, and treat the
+   *  current edit graph as the clean state. */
+  renameDoc: (newPath: string, newName: string) => void
 
   // Helpers
   sourcePaths: () => Record<string, string>
@@ -427,6 +430,17 @@ export const useStore = create<State>((set, get) => ({
   markSaved: () => {
     const s = get()
     set({ savedPages: s.pages })
+    window.pdf.setDirty(false)
+  },
+
+  renameDoc: (newPath, newName) => {
+    set((s) => {
+      if (!s.doc) return s
+      return {
+        doc: { ...s.doc, id: newPath, path: newPath, name: newName },
+        savedPages: s.pages
+      }
+    })
     window.pdf.setDirty(false)
   },
 

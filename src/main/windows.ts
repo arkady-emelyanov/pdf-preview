@@ -22,6 +22,28 @@ export function approveClose(win: BrowserWindow): void {
   closingApproved.add(win)
 }
 
+/**
+ * Re-point a window at a new file path after Save As. Updates the
+ * windowsByPath registry so future "open this file" routes here, and sets
+ * the window title. No-ops if the new path equals the current one.
+ */
+export function rebindWindowPath(win: BrowserWindow, newPath: string): void {
+  const key = canonical(newPath)
+  // Find and remove the old key.
+  for (const [path, w] of windowsByPath) {
+    if (w === win) {
+      if (path === key) return // already bound
+      windowsByPath.delete(path)
+      break
+    }
+  }
+  // If another window owns this key, evict it from the map so the new owner
+  // wins. The other window stays open but is no longer the canonical home for
+  // this path; focusOrCreate calls on this path will now focus us.
+  windowsByPath.set(key, win)
+  win.setTitle(basename(key))
+}
+
 function canonical(path: string): string {
   try {
     return realpathSync(path)

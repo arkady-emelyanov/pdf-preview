@@ -8,6 +8,11 @@ function basenameNoExt(name: string): string {
   return dot > 0 ? name.slice(0, dot) : name
 }
 
+function basenameOf(p: string): string {
+  const i = Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\'))
+  return i >= 0 ? p.slice(i + 1) : p
+}
+
 export function Toolbar(): JSX.Element {
   const doc = useStore((s) => s.doc)
   const pages = useStore((s) => s.pages)
@@ -34,6 +39,7 @@ export function Toolbar(): JSX.Element {
   const tool = useStore((s) => s.tool)
   const setTool = useStore((s) => s.setTool)
   const markSaved = useStore((s) => s.markSaved)
+  const renameDoc = useStore((s) => s.renameDoc)
   const [busy, setBusy] = useState(false)
 
   const dirty = !pagesEqual(pages, savedPages)
@@ -56,7 +62,17 @@ export function Toolbar(): JSX.Element {
     try {
       const def = `${basenameNoExt(doc.name)} copy.pdf`
       const res = await window.pdf.saveAs(sourcePaths(), pages, def)
-      if (res.ok === false && res.error) alert(`Save As failed: ${res.error}`)
+      if (res.ok) {
+        // Adopt the new file as the window's identity: re-bind the window's
+        // path in main (title + path registry), register the new path as a
+        // source so future saves can write to it, then rename + clear dirty
+        // on the renderer side.
+        const src = await window.pdf.rebindPath(res.path)
+        if (src) registerSource(src)
+        renameDoc(res.path, basenameOf(res.path))
+      } else if (res.error) {
+        alert(`Save As failed: ${res.error}`)
+      }
     } finally {
       setBusy(false)
     }
