@@ -335,8 +335,12 @@ export async function dispatchFormEvent(
   const m = mod as any
   switch (ev.kind) {
     case 'down': {
+      const annot = m.FPDFAnnot_GetFormFieldAtPoint(d.form.formHandle, pagePtr, ev.pageX, ev.pageY)
       const ok = m.FORM_OnLButtonDown(d.form.formHandle, pagePtr, 0, ev.pageX, ev.pageY)
-      console.log(`[forms] DOWN(${ev.pageX.toFixed(1)},${ev.pageY.toFixed(1)}) -> ${ok}`)
+      console.log(
+        `[forms] DOWN(${ev.pageX.toFixed(1)},${ev.pageY.toFixed(1)}) hitAnnot=${annot ? '0x' + annot.toString(16) : 'NONE'} ok=${ok}`
+      )
+      if (annot) m.FPDFPage_CloseAnnot(annot)
       break
     }
     case 'up': {
