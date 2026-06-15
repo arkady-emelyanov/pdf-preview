@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useStore } from './store'
-import { identityPages, pagesEqual, type VirtualPage } from '../../shared/edit'
+import { identityPages, type VirtualPage } from '../../shared/edit'
 import { AnnotationProps } from './AnnotationProps'
 
 function basenameNoExt(name: string): string {
@@ -16,9 +16,6 @@ function basenameOf(p: string): string {
 export function Toolbar(): JSX.Element {
   const doc = useStore((s) => s.doc)
   const pages = useStore((s) => s.pages)
-  const savedPages = useStore((s) => s.savedPages)
-  const undoStack = useStore((s) => s.undoStack)
-  const redoStack = useStore((s) => s.redoStack)
   const selection = useStore((s) => s.selection)
   const currentPage = useStore((s) => s.currentPage)
   const scale = useStore((s) => s.scale)
@@ -29,10 +26,6 @@ export function Toolbar(): JSX.Element {
   const setZoomMode = useStore((s) => s.setZoomMode)
   const requestJump = useStore((s) => s.requestJump)
   const openSearch = useStore((s) => s.openSearch)
-  const undo = useStore((s) => s.undo)
-  const redo = useStore((s) => s.redo)
-  const rotateSelection = useStore((s) => s.rotateSelection)
-  const deleteSelection = useStore((s) => s.deleteSelection)
   const insertPages = useStore((s) => s.insertPages)
   const registerSource = useStore((s) => s.registerSource)
   const sourcePaths = useStore((s) => s.sourcePaths)
@@ -41,8 +34,6 @@ export function Toolbar(): JSX.Element {
   const markSaved = useStore((s) => s.markSaved)
   const renameDoc = useStore((s) => s.renameDoc)
   const [busy, setBusy] = useState(false)
-
-  const dirty = !pagesEqual(pages, savedPages)
 
   const doSave = async (): Promise<void> => {
     if (!doc || busy) return
@@ -203,41 +194,26 @@ export function Toolbar(): JSX.Element {
       >
         ☰
       </button>
-      <strong className="doc-title">
-        {dirty ? '• ' : ''}
-        {doc?.name ?? 'Preview'}
-      </strong>
 
       {doc && (
         <>
           <div className="divider" />
-          <button onClick={undo} disabled={undoStack.length === 0} title="Undo (Ctrl+Z)">
-            ↶
-          </button>
-          <button onClick={redo} disabled={redoStack.length === 0} title="Redo (Ctrl+Shift+Z)">
-            ↷
-          </button>
-          <div className="divider" />
-          <button onClick={() => rotateSelection(-90)} title="Rotate left (Ctrl+[)">
-            ⟲
-          </button>
-          <button onClick={() => rotateSelection(90)} title="Rotate right (Ctrl+])">
-            ⟳
-          </button>
-          <button onClick={() => deleteSelection()} title="Delete page(s) (Del)">
-            ✕
-          </button>
-          <button onClick={doInsert} title="Insert pages from PDF…">
-            ＋
-          </button>
-          <div className="divider" />
           <button
             onClick={() => setTool('select')}
             aria-pressed={tool === 'select'}
-            title="Select tool (Esc)"
+            title="Select tool (V)"
           >
             ↖
           </button>
+          <button
+            onClick={() => setTool('text')}
+            aria-pressed={tool === 'text'}
+            title="Select text (T)"
+            style={{ fontFamily: 'serif', fontSize: 16 }}
+          >
+            ⌶
+          </button>
+          <div className="divider" />
           <button
             onClick={() => setTool('rect')}
             aria-pressed={tool === 'rect'}
@@ -260,13 +236,6 @@ export function Toolbar(): JSX.Element {
             ↗
           </button>
           <button
-            onClick={() => setTool('text')}
-            aria-pressed={tool === 'text'}
-            title="Select text (T)"
-          >
-            𝐓
-          </button>
-          <button
             onClick={() => setTool('note')}
             aria-pressed={tool === 'note'}
             title="Sticky note (N)"
@@ -274,17 +243,6 @@ export function Toolbar(): JSX.Element {
             🗒
           </button>
           <AnnotationProps />
-          <div className="divider" />
-          <button onClick={doSave} disabled={!dirty || busy} title="Save (Ctrl+S)">
-            {busy ? '…' : '💾'}
-          </button>
-          <button
-            onClick={doExtract}
-            disabled={selection.size === 0 || busy}
-            title="Export selected pages as new PDF…"
-          >
-            ⇲
-          </button>
         </>
       )}
 

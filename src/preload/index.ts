@@ -10,6 +10,19 @@ type MenuChannel =
   | 'mergePdfs'
   | 'saveAndClose'
   | 'copy'
+  | 'undo'
+  | 'redo'
+  | 'rotateLeft'
+  | 'rotateRight'
+  | 'deletePages'
+
+interface MenuStatePatch {
+  hasDoc?: boolean
+  dirty?: boolean
+  canUndo?: boolean
+  canRedo?: boolean
+  hasSelection?: boolean
+}
 
 const api = {
   openCurrent: (): Promise<DocInfo | null> => ipcRenderer.invoke('pdf:open'),
@@ -53,6 +66,8 @@ const api = {
   setDirty: (dirty: boolean): void => ipcRenderer.send('pdf:setDirty', dirty),
   setHasTextSelection: (has: boolean): void =>
     ipcRenderer.send('pdf:setHasTextSelection', has),
+  setMenuState: (patch: MenuStatePatch): void =>
+    ipcRenderer.send('pdf:setMenuState', patch),
   saveAndCloseResult: (ok: boolean): void =>
     ipcRenderer.send('pdf:saveAndCloseResult', ok),
   close: (id: string): void => ipcRenderer.send('pdf:close', id),

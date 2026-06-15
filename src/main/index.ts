@@ -11,7 +11,7 @@ import {
   approveClose,
   rebindWindowPath
 } from './windows'
-import { buildMenu, showOpenDialog } from './menu'
+import { buildMenu, setMenuState, showOpenDialog, type MenuState } from './menu'
 import { realpathSync } from 'node:fs'
 import {
   openDoc,
@@ -223,6 +223,10 @@ app.whenReady().then(() => {
     setImmediate(() => {
       if (!win.isDestroyed()) win.close()
     })
+  })
+
+  ipcMain.on('pdf:setMenuState', (_evt, patch: Partial<MenuState>) => {
+    setMenuState(patch)
   })
 
   ipcMain.on('pdf:setHasTextSelection', (evt, has: boolean) => {

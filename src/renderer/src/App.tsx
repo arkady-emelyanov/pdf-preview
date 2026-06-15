@@ -6,6 +6,7 @@ import { Viewport } from './Viewport'
 import { SideNav } from './SideNav'
 import { SearchBar } from './SearchBar'
 import { copyTextSelection, useKeyboardShortcuts } from './keys'
+import { pagesEqual } from '../../shared/edit'
 
 export function App(): JSX.Element {
   const setDoc = useStore((s) => s.setDoc)
@@ -30,6 +31,36 @@ export function App(): JSX.Element {
   // Edit > Copy and right-click → Copy both fire menu:copy on the renderer.
   useEffect(() => {
     return window.pdf.onMenu('copy', () => void copyTextSelection())
+  }, [])
+
+  // Menu-driven page/edit ops. These all read state fresh from the store, so
+  // a single attach with [] deps avoids the stale-closure trap.
+  useEffect(() => {
+    const offs = [
+      window.pdf.onMenu('undo', () => useStore.getState().undo()),
+      window.pdf.onMenu('redo', () => useStore.getState().redo()),
+      window.pdf.onMenu('rotateLeft', () => useStore.getState().rotateSelection(-90)),
+      window.pdf.onMenu('rotateRight', () => useStore.getState().rotateSelection(90)),
+      window.pdf.onMenu('deletePages', () => useStore.getState().deleteSelection())
+    ]
+    return () => offs.forEach((off) => off())
+  }, [])
+
+  // Push the bits of state that drive menu enablement to main. setMenuState
+  // de-dupes, so churning through irrelevant store changes is cheap.
+  useEffect(() => {
+    const push = (): void => {
+      const s = useStore.getState()
+      window.pdf.setMenuState({
+        hasDoc: !!s.doc,
+        dirty: !pagesEqual(s.pages, s.savedPages),
+        canUndo: s.undoStack.length > 0,
+        canRedo: s.redoStack.length > 0,
+        hasSelection: s.selection.size > 0
+      })
+    }
+    push() // initial state on first mount
+    return useStore.subscribe(push)
   }, [])
 
   // Mirror text-selection presence into main so the context menu can grey out
