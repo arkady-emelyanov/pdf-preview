@@ -150,19 +150,16 @@ export function buildMenu(): void {
     },
     {
       label: 'View',
-      submenu: [{ role: 'togglefullscreen' }]
+      submenu: [
+        { role: 'togglefullscreen' },
+        { type: 'separator' },
+        { role: 'reload', accelerator: 'CmdOrCtrl+R' },
+        { role: 'toggleDevTools', accelerator: 'CmdOrCtrl+Shift+I' }
+      ]
     },
     {
       label: 'Window',
       submenu: [{ role: 'minimize' }, { role: 'zoom' }]
-    },
-    {
-      label: '',
-      visible: false,
-      submenu: [
-        { role: 'toggleDevTools', accelerator: 'CmdOrCtrl+Shift+I' },
-        { role: 'reload', accelerator: 'CmdOrCtrl+R' }
-      ]
     }
   ]
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
