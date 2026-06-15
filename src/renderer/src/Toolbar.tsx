@@ -240,7 +240,7 @@ export function Toolbar(): JSX.Element {
             aria-pressed={tool === 'note'}
             title="Sticky note (N)"
           >
-            🗒
+            ✎
           </button>
           <button
             onClick={() => setTool('freetext')}
