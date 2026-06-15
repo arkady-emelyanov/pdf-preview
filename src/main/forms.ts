@@ -121,10 +121,19 @@ export function initFormState(
 
 const FPDF_FORMFLAG_READONLY = 1
 
-/** Names that mark a widget as a system-generated barcode / data carrier we
- *  must NOT unlock — the form's processing pipeline depends on its value. */
-const SYSTEM_FIELD_NAME_RE = /barcode|pdf417|qrcode|qr_code/i
-
+/**
+ * Unlock a widget only when ReadOnly is set AND the field is empty.
+ *
+ * Rationale: if the form author wanted a widget to display content
+ * (a barcode, a watermark, a fixed instruction), they'd populate `/V`
+ * up front. A ReadOnly + non-empty widget is a deliberate display field
+ * and we must leave it alone — typing into it would corrupt e.g. the
+ * PDF417 data carrier that the agency's intake scanner relies on.
+ *
+ * Conditional "unlocks on related checkbox" fields are always empty at
+ * open since the gating Acrobat JavaScript hasn't run, so this rule
+ * unlocks exactly those without needing any naming heuristic.
+ */
 function unlockReadOnlyWidgets(
   mod: WrappedPdfiumModule,
   docPtr: number,
@@ -134,8 +143,8 @@ function unlockReadOnlyWidgets(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const m = mod as any
   const raw = em(mod)
-  const namebuf = raw.wasmExports.malloc(1024)
-  if (!namebuf) return
+  const valbuf = raw.wasmExports.malloc(8)
+  if (!valbuf) return
   try {
     for (let pi = 0; pi < pageCount; pi++) {
       const pagePtr = m.FPDF_LoadPage(docPtr, pi) as number
@@ -149,13 +158,10 @@ function unlockReadOnlyWidgets(
             if ((m.FPDFAnnot_GetSubtype(annot) as number) !== 20) continue
             const flags = m.FPDFAnnot_GetFormFieldFlags(formHandle, annot) as number
             if (!(flags & FPDF_FORMFLAG_READONLY)) continue
-            // Read the qualified name and skip system fields (barcodes, etc).
-            const got = m.FPDFAnnot_GetFormFieldName(formHandle, annot, namebuf, 1024)
-            const name =
-              got > 2
-                ? new TextDecoder('utf-16le').decode(raw.HEAPU8.subarray(namebuf, namebuf + got - 2))
-                : ''
-            if (SYSTEM_FIELD_NAME_RE.test(name)) continue
+            // Length returned in bytes (UTF-16) incl. trailing null (2 bytes).
+            // <= 2 ⇒ empty / unset.
+            const vlen = m.FPDFAnnot_GetFormFieldValue(formHandle, annot, valbuf, 8) as number
+            if (vlen > 2) continue
             m.FPDFAnnot_SetFormFieldFlags(formHandle, annot, flags & ~FPDF_FORMFLAG_READONLY)
           } finally {
             m.FPDFPage_CloseAnnot(annot)
@@ -166,7 +172,7 @@ function unlockReadOnlyWidgets(
       }
     }
   } finally {
-    raw.wasmExports.free(namebuf)
+    raw.wasmExports.free(valbuf)
   }
 }
 
