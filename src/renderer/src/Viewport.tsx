@@ -112,10 +112,13 @@ export function Viewport(): JSX.Element {
       </div>
     )
   }
-  if (!layout) return <div />
 
+  // Always mount the scroll container once `doc` is set, even before `layout`
+  // is computed — otherwise the ref would attach to an empty 0×0 div first and
+  // the ResizeObserver would observe stale geometry.
   return (
     <div ref={scrollRef} className="viewport-scroll">
+      {layout && (
       <div className="pages-spacer" style={{ height: layout.totalHeight }}>
         {pages.map((vp, i) => {
           const sz = layout.sizes[i]
@@ -150,6 +153,7 @@ export function Viewport(): JSX.Element {
           )
         })}
       </div>
+      )}
     </div>
   )
 }
