@@ -12,11 +12,12 @@ import {
 import type { VirtualPage } from '../shared/edit'
 import {
   NOTE_SIZE_PT,
+  OWN_NM_PREFIX,
   lineBBox,
   parseHexColor,
   type Annotation
 } from '../shared/annotations'
-import { PDFBool } from 'pdf-lib'
+import { PDFBool, PDFDict } from 'pdf-lib'
 
 /**
  * Bake a (possibly multi-source) virtual-page edit graph onto disk via pdf-lib.
@@ -75,6 +76,11 @@ export async function saveDoc(
       const absolute = (srcRot + batch[k].rotation) % 360
       page.setRotation(degrees(absolute))
       out.addPage(page)
+      // copyPages brings over any /Annots on the source page — including ones
+      // we wrote on a previous save. Strip the ones we own so the current
+      // edit graph is the single source of truth; foreign annotations are
+      // left intact.
+      stripOwnedAnnotations(page)
       const anns = batch[k].annotations
       if (anns && anns.length > 0) writeAnnotations(page, anns)
     }
@@ -83,6 +89,31 @@ export async function saveDoc(
 
   const outBytes = await out.save({ useObjectStreams: true })
   await writeFile(destPath, outBytes)
+}
+
+/** Remove annotations we recognize as our own (via /NM prefix) from a page's
+ *  /Annots array. Used before re-writing so re-saves don't duplicate. */
+function stripOwnedAnnotations(page: PDFPage): void {
+  const annots = page.node.Annots()
+  if (!(annots instanceof PDFArray)) return
+  for (let i = annots.size() - 1; i >= 0; i--) {
+    const entry = annots.get(i)
+    const dict =
+      entry instanceof PDFArray
+        ? null
+        : ((entry as unknown) instanceof PDFDict
+            ? (entry as unknown as PDFDict)
+            : page.doc.context.lookupMaybe(entry, PDFDict))
+    if (!(dict instanceof PDFDict)) continue
+    const nm = dict.lookup(PDFName.of('NM'))
+    const nmStr =
+      nm instanceof PDFHexString
+        ? nm.decodeText()
+        : nm instanceof PDFString
+          ? nm.decodeText()
+          : ''
+    if (nmStr.startsWith(OWN_NM_PREFIX)) annots.remove(i)
+  }
 }
 
 /** Append our annotations to a copied output page as standard PDF annot dicts. */

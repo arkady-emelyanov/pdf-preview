@@ -86,7 +86,7 @@ export function Toolbar(): JSX.Element {
       if (paths.length === 0) return
       const src = await window.pdf.registerSource(paths[0])
       registerSource(src)
-      const inserts: VirtualPage[] = identityPages(src.sourceId, src.pageCount)
+      const inserts: VirtualPage[] = identityPages(src.sourceId, src.pageCount, src.annotations)
       // Insert AFTER currentPage (or at end if no doc).
       const target = pages.length === 0 ? 0 : currentPage + 1
       insertPages(inserts, target)
@@ -125,7 +125,7 @@ export function Toolbar(): JSX.Element {
       for (const p of paths) {
         const src = await window.pdf.registerSource(p)
         registerSource(src)
-        aggregated.push(...identityPages(src.sourceId, src.pageCount))
+        aggregated.push(...identityPages(src.sourceId, src.pageCount, src.annotations))
       }
       // Append to end.
       insertPages(aggregated, pages.length)

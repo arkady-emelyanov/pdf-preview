@@ -26,11 +26,24 @@ export function rotatedSize(size: PageSize, rotation: Rotation): PageSize {
     : size
 }
 
-/** Create the identity edit state for a freshly opened document. */
-export function identityPages(sourceId: string, sourcePageCount: number): VirtualPage[] {
+/**
+ * Create the identity edit state for a freshly opened document. If
+ * `annotationsPerPage[i]` is non-empty, those annotations are attached to the
+ * resulting VirtualPage `i`.
+ */
+export function identityPages(
+  sourceId: string,
+  sourcePageCount: number,
+  annotationsPerPage?: Annotation[][]
+): VirtualPage[] {
   const pages: VirtualPage[] = []
   for (let i = 0; i < sourcePageCount; i++) {
-    pages.push({ sourceId, sourceIndex: i, rotation: 0 })
+    const anns = annotationsPerPage?.[i]
+    pages.push(
+      anns && anns.length > 0
+        ? { sourceId, sourceIndex: i, rotation: 0, annotations: anns }
+        : { sourceId, sourceIndex: i, rotation: 0 }
+    )
   }
   return pages
 }

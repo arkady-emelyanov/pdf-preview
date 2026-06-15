@@ -1,3 +1,5 @@
+import type { Annotation } from './annotations'
+
 export type DocId = string
 
 export interface PageSize {
@@ -18,6 +20,9 @@ export interface SourceInfo {
   name: string
   pageCount: number
   pageSizes: PageSize[]
+  /** Annotations parsed from the file on open, one array per source page.
+   *  Only contains annotations whose `/NM` carries our `OWN_NM_PREFIX`. */
+  annotations: Annotation[][]
 }
 
 export interface DocInfo {

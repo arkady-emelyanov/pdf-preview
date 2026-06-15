@@ -9,6 +9,7 @@ import { join } from 'node:path'
 import { PDFArray, PDFDict, PDFDocument, PDFName, StandardFonts, degrees } from 'pdf-lib'
 import { saveDoc } from '../src/main/save'
 import { makeBox, makeLine, makeNote, makeRect } from '../src/shared/annotations'
+import { loadAnnotations } from '../src/main/loadAnnotations'
 
 let workDir: string
 let inputA: string
@@ -264,6 +265,95 @@ describe('saveDoc (annotations)', () => {
     const doc = await PDFDocument.load(await readFile(out))
     const annots = doc.getPage(0).node.Annots()
     if (annots instanceof PDFArray) expect(annots.size()).toBe(0)
+  })
+})
+
+describe('loadAnnotations round-trip', () => {
+  it('reads back rect / oval / arrow / note from a saved file', async () => {
+    const out = join(workDir, 'mixed-annots.pdf')
+    const rect = makeRect({ x: 10, y: 10, w: 50, h: 30, stroke: '#ff0000', strokeWidth: 3 })
+    const oval = makeBox('oval', { x: 100, y: 50, w: 60, h: 40, stroke: '#00ff00', fill: '#aaffaa' })
+    const arrow = makeLine('arrow', { x1: 10, y1: 100, x2: 90, y2: 150, stroke: '#0000ff' })
+    const note = makeNote({ x: 200, y: 80, body: 'hello', color: '#ffaa00' })
+    await saveDoc({ [inputA]: inputA }, out, [
+      { sourceId: inputA, sourceIndex: 0, rotation: 0, annotations: [rect, oval, arrow, note] }
+    ])
+    const loaded = await loadAnnotations(out)
+    expect(loaded[0]).toHaveLength(4)
+    const byKind = Object.fromEntries(loaded[0].map((a) => [a.kind, a]))
+    expect(byKind.rect.id).toBe(rect.id)
+    expect(byKind.oval.id).toBe(oval.id)
+    expect(byKind.arrow.id).toBe(arrow.id)
+    expect(byKind.note.id).toBe(note.id)
+    expect((byKind.note as { body: string }).body).toBe('hello')
+    expect((byKind.oval as { fill?: string }).fill).toBe('#aaffaa')
+    expect((byKind.arrow as { x1: number; x2: number }).x1).toBe(10)
+    expect((byKind.arrow as { x1: number; x2: number }).x2).toBe(90)
+  })
+
+  it('skips foreign annotations (no /NM with our prefix)', async () => {
+    // Inject a synthetic foreign annotation into inputA and verify the loader
+    // ignores it.
+    const src = await PDFDocument.load(await readFile(inputA))
+    const page = src.getPage(0)
+    const ctx = src.context
+    const foreign = ctx.obj({
+      Type: 'Annot',
+      Subtype: 'Square',
+      Rect: [10, 10, 20, 20],
+      NM: 'other-tool-id'
+    })
+    page.node.set(PDFName.of('Annots'), ctx.obj([foreign]))
+    const foreignPath = join(workDir, 'foreign.pdf')
+    await writeFile(foreignPath, await src.save())
+    const loaded = await loadAnnotations(foreignPath)
+    expect(loaded[0]).toEqual([])
+  })
+
+  it('save → load → save → load keeps exactly one of each annotation', async () => {
+    const out = join(workDir, 'resave.pdf')
+    const rect = makeRect({ x: 0, y: 0, w: 50, h: 30 })
+    await saveDoc({ [inputA]: inputA }, out, [
+      { sourceId: inputA, sourceIndex: 0, rotation: 0, annotations: [rect] }
+    ])
+    const first = await loadAnnotations(out)
+    expect(first[0]).toHaveLength(1)
+    // Re-save through saveDoc using `out` as the source (the round-trip path
+    // the renderer goes through after reopening a file it edited).
+    await saveDoc({ [out]: out }, out, [
+      { sourceId: out, sourceIndex: 0, rotation: 0, annotations: first[0] }
+    ])
+    const second = await loadAnnotations(out)
+    expect(second[0]).toHaveLength(1)
+    expect(second[0][0].id).toBe(rect.id)
+  })
+
+  it('save preserves a foreign annotation alongside our edits', async () => {
+    const seeded = join(workDir, 'with-foreign.pdf')
+    const src = await PDFDocument.load(await readFile(inputA))
+    const page = src.getPage(0)
+    const ctx = src.context
+    const foreign = ctx.obj({
+      Type: 'Annot',
+      Subtype: 'Square',
+      Rect: [200, 200, 230, 230],
+      NM: 'foreign-tool-marker'
+    })
+    page.node.set(PDFName.of('Annots'), ctx.obj([foreign]))
+    await writeFile(seeded, await src.save())
+    // Now save again via our pipeline with one of our annotations.
+    const out = join(workDir, 'with-foreign-and-ours.pdf')
+    const ours = makeRect({ x: 0, y: 0, w: 10, h: 10 })
+    await saveDoc({ [seeded]: seeded }, out, [
+      { sourceId: seeded, sourceIndex: 0, rotation: 0, annotations: [ours] }
+    ])
+    const doc = await PDFDocument.load(await readFile(out))
+    const arr = doc.getPage(0).node.Annots() as PDFArray
+    expect(arr.size()).toBe(2) // foreign survived + ours added
+    // Loader only surfaces ours.
+    const loaded = await loadAnnotations(out)
+    expect(loaded[0]).toHaveLength(1)
+    expect(loaded[0][0].id).toBe(ours.id)
   })
 })
 

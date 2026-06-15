@@ -23,7 +23,8 @@ const doc: DocInfo = {
       { width: 595, height: 842 },
       { width: 612, height: 792 },
       { width: 200, height: 400 }
-    ]
+    ],
+    annotations: []
   }
 }
 

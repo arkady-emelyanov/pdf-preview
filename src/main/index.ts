@@ -22,6 +22,7 @@ import {
   findMatchRects
 } from './pdfium'
 import { saveDoc } from './save'
+import { loadAnnotations } from './loadAnnotations'
 import type { VirtualPage } from '../shared/edit'
 
 function canonical(p: string): string {
@@ -63,11 +64,12 @@ app.whenReady().then(() => {
     const bytes = await readFile(path)
     const pageCount = await openDoc(path, bytes)
     const pageSizes = getAllPageSizes(path) ?? []
+    const annotations = await loadAnnotations(path)
     return {
       id: path,
       path,
       name: basename(path),
-      primary: { sourceId: path, name: basename(path), pageCount, pageSizes }
+      primary: { sourceId: path, name: basename(path), pageCount, pageSizes, annotations }
     }
   })
 
@@ -78,11 +80,13 @@ app.whenReady().then(() => {
       await openDoc(id, bytes)
     }
     const pageSizes = getAllPageSizes(id) ?? []
+    const annotations = await loadAnnotations(id)
     return {
       sourceId: id,
       name: basename(id),
       pageCount: pageSizes.length,
-      pageSizes
+      pageSizes,
+      annotations
     }
   })
 

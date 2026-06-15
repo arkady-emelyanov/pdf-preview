@@ -32,7 +32,7 @@ describe('makeRect', () => {
     expect(r.w).toBe(0)
     expect(r.h).toBe(0)
     expect(r.kind).toBe('rect')
-    expect(r.id).toMatch(/^[a-z0-9]+$/)
+    expect(r.id).toMatch(/^p4l-[a-z0-9]+$/)
     expect(r.created).toBeGreaterThan(0)
     expect(r.modified).toBe(r.created)
     expect(r.opacity).toBe(1)

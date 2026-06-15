@@ -177,7 +177,9 @@ export const useStore = create<State>((set, get) => ({
   pageCharsCache: new Map(),
 
   setDoc: (d) => {
-    const pages = d ? identityPages(d.primary.sourceId, d.primary.pageCount) : []
+    const pages = d
+      ? identityPages(d.primary.sourceId, d.primary.pageCount, d.primary.annotations)
+      : []
     const sources: Record<string, SourceInfo> = d ? { [d.primary.sourceId]: d.primary } : {}
     set({
       doc: d,

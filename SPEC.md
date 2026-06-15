@@ -176,12 +176,21 @@ twice.
   selection; `R` Rect, `O` Oval, `A` Arrow, `N` Note, `T` Text, `V` Select.
 - Save bakes shapes as standard PDF annotation dicts via pdf-lib's low-level
   `context.obj` API: `/Square` for rect, `/Circle` for oval, `/Line` for
-  arrow and line. Common fields: Subtype, Rect, C (stroke 0..1), CA (opacity),
-  F=4 (print), BS (border with W = strokeWidth), M (modification date), NM
-  (our id), T (author when set). Bbox shapes add IC (interior fill) when
-  set. Line shapes add L (the two endpoints) and LE (`[/None /None]` for
-  plain line, `[/None /OpenArrow]` for arrow). Round-trip tests in
-  `tests/save.test.ts` confirm each dict structure.
+  arrow and line, `/Text` for sticky notes. Common fields: Subtype, Rect, C
+  (stroke 0..1), CA (opacity), F=4 (print), BS (border with W = strokeWidth),
+  M (modification date), NM (our id), T (author when set). Bbox shapes add
+  IC (interior fill) when set. Line shapes add L (the two endpoints) and LE
+  (`[/None /None]` for plain line, `[/None /OpenArrow]` for arrow). Notes
+  add Contents (body, UTF-16BE), Name (`/Note`), Open (`false`).
+- **Round-trip on reopen** ✅: `loadAnnotations` parses `/Annots` on open and
+  rehydrates them into the edit graph, keyed by the same `/NM` we wrote on
+  save. NM ids carry an `OWN_NM_PREFIX` (`p4l-`) so we only round-trip our
+  own annotations — foreign annotations from other tools stay in the file
+  byte-for-byte but don't appear in the editor (the schema can't represent
+  every PDF annotation kind, and surfacing them as opaque objects would
+  break drag/move/undo). On save, `stripOwnedAnnotations` removes only the
+  `p4l-`-tagged annotations from each copied page before re-writing, so a
+  save → load → save cycle keeps exactly one copy of each.
 
 ### 4.3 Forms — *not yet*
 - **AcroForm:** render via PDFium's `renderFormFields` flag; capture filled state on save by re-reading the PDF and copying field values via pdf-lib. Option to flatten on export.

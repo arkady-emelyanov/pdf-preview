@@ -96,8 +96,17 @@ export const defaultBoxStyle: BoxStyle = {
   opacity: 1
 }
 
+/**
+ * Identifies annotations we own when reading back a previously-saved PDF.
+ * Foreign annotations (made by Acrobat, etc.) lack this prefix and are left
+ * alone on both load and save.
+ */
+export const OWN_NM_PREFIX = 'p4l-'
+
 export function newId(): string {
-  return Math.random().toString(36).slice(2, 10) + Date.now().toString(36)
+  return (
+    OWN_NM_PREFIX + Math.random().toString(36).slice(2, 10) + Date.now().toString(36)
+  )
 }
 
 export function makeBox(
