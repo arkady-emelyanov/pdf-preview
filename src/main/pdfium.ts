@@ -350,12 +350,16 @@ export async function dispatchFormEvent(
     case 'move':
       forwardPointerEvent(mod, d.form, pagePtr, ev.kind, ev.pageX, ev.pageY)
       break
-    case 'char':
-      forwardChar(mod, d.form, pagePtr, ev.charCode, ev.mods)
+    case 'char': {
+      const ok = m.FORM_OnChar(d.form.formHandle, pagePtr, ev.charCode, ev.mods)
+      console.log(`[forms] CHAR(${ev.charCode}=${String.fromCharCode(ev.charCode)}) -> ${ok}`)
       break
-    case 'keydown':
-      forwardKeyDown(mod, d.form, pagePtr, ev.vkey, ev.mods)
+    }
+    case 'keydown': {
+      const ok = m.FORM_OnKeyDown(d.form.formHandle, pagePtr, ev.vkey, ev.mods)
+      console.log(`[forms] KEYDOWN(0x${ev.vkey.toString(16)}) -> ${ok}`)
       break
+    }
   }
 }
 
