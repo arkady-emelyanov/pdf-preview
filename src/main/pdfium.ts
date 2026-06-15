@@ -335,19 +335,18 @@ export async function dispatchFormEvent(
   const m = mod as any
   switch (ev.kind) {
     case 'down': {
-      const annot = m.FPDFAnnot_GetFormFieldAtPoint(d.form.formHandle, pagePtr, ev.pageX, ev.pageY)
-      const ok = m.FORM_OnLButtonDown(d.form.formHandle, pagePtr, 0, ev.pageX, ev.pageY)
-      console.log(
-        `[forms] DOWN(${ev.pageX.toFixed(1)},${ev.pageY.toFixed(1)}) hitAnnot=${annot ? '0x' + annot.toString(16) : 'NONE'} ok=${ok}`
-      )
-      if (annot) m.FPDFPage_CloseAnnot(annot)
+      // PDFium-WASM's form-fill leaves the previously-focused widget sticky
+      // when a fresh OnLButtonDown lands on a different widget — UP comes
+      // back true but the focus indicator never moves. Force-killing focus
+      // first turns every click into a clean "defocus then focus" sequence,
+      // which works around it. The cost is one extra WASM call per click.
+      m.FORM_ForceToKillFocus(d.form.formHandle)
+      forwardPointerEvent(mod, d.form, pagePtr, 'down', ev.pageX, ev.pageY)
       break
     }
-    case 'up': {
-      const ok = m.FORM_OnLButtonUp(d.form.formHandle, pagePtr, 0, ev.pageX, ev.pageY)
-      console.log(`[forms] UP(${ev.pageX.toFixed(1)},${ev.pageY.toFixed(1)}) -> ${ok}`)
+    case 'up':
+      forwardPointerEvent(mod, d.form, pagePtr, 'up', ev.pageX, ev.pageY)
       break
-    }
     case 'move':
       forwardPointerEvent(mod, d.form, pagePtr, ev.kind, ev.pageX, ev.pageY)
       break

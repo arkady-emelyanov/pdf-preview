@@ -67,7 +67,6 @@ export function FormLayer({
         ;(e.currentTarget as HTMLDivElement).focus()
         const { cx, cy } = localCoords(e)
         const { x, y } = canvasToPagePt(cx, cy)
-        console.log(`[FormLayer] DOWN page=(${x.toFixed(1)},${y.toFixed(1)})`)
         void window.pdf.formEvent(sourceId, sourceIndex, { kind: 'down', pageX: x, pageY: y })
       }}
       onPointerMove={(e) => {
@@ -82,7 +81,6 @@ export function FormLayer({
         if (canvas.hasPointerCapture(e.pointerId)) canvas.releasePointerCapture(e.pointerId)
         const { cx, cy } = localCoords(e)
         const { x, y } = canvasToPagePt(cx, cy)
-        console.log(`[FormLayer] UP page=(${x.toFixed(1)},${y.toFixed(1)})`)
         void window.pdf.formEvent(sourceId, sourceIndex, { kind: 'up', pageX: x, pageY: y })
         bumpFormRevision(sourceId, sourceIndex)
       }}
