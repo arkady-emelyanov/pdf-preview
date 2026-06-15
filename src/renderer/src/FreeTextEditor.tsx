@@ -78,6 +78,10 @@ export function FreeTextEditor({
   const wPx = ft.w * scale
   const hPx = ft.h * scale
   const sizePx = ft.fontSize * scale
+  // CCW rotation in PDF coords = visually CCW on canvas. CSS `rotate()` is
+  // CW positive, so negate. Pivot the transform around the bbox center so
+  // the textarea overlays the canvas-drawn freetext exactly.
+  const rotDeg = ((ft.rotation ?? 0) * 180) / Math.PI
 
   return (
     <textarea
@@ -95,7 +99,9 @@ export function FreeTextEditor({
         font: `${sizePx}px ${cssFontFamily(ft.font)}`,
         lineHeight: FREETEXT_LINE_HEIGHT,
         color: ft.color,
-        opacity: ft.opacity
+        opacity: ft.opacity,
+        transform: rotDeg !== 0 ? `rotate(${-rotDeg}deg)` : undefined,
+        transformOrigin: 'center center'
       }}
       onPointerDown={(e) => e.stopPropagation()}
       onFocus={() => {

@@ -151,7 +151,17 @@ twice.
   (rect/oval only). Drag to draw — bbox for rect/oval, tail-to-head for
   arrow/line. Resize ✅: 8 corner+edge handles on bbox shapes (drag-past-
   opposite flips cleanly); 2 endpoint handles on arrow/line let you drag
-  either end independently. Rotate handle still planned.
+  either end independently. Rotate handle ✅: rect / oval / freetext carry
+  an optional `rotation` (radians, CCW around the bbox center, in PDF
+  coords). A handle sits above the top edge; dragging it pivots the shape;
+  holding Shift snaps to 15° increments. The stored `(x, y, w, h)` always
+  describes the *un-rotated* bbox, so hit-test / resize / save logic
+  transforms the pointer into the local frame instead of recomputing
+  geometry on every frame. Resize on a rotated shape works in that local
+  frame, so the visual "east" handle still grows width; the dragged corner
+  follows the cursor while the opposite corner stays put. (Lines and sticky
+  notes don't get a rotate handle — lines rotate via endpoint drag, and
+  notes are point-anchored.)
 - **Sticky notes** ✅: a separate `NoteAnnotation` (single anchor point + body
   string + icon color — no bbox/stroke). Note tool (`N`) drops a yellow icon at
   the cursor and immediately selects it; `<NotePopover>` opens a small
@@ -208,6 +218,20 @@ twice.
   IC (interior fill) when set. Line shapes add L (the two endpoints) and LE
   (`[/None /None]` for plain line, `[/None /OpenArrow]` for arrow). Notes
   add Contents (body, UTF-16BE), Name (`/Note`), Open (`false`).
+- **Rotation write-back**: when rect / oval / freetext has a non-zero
+  rotation we write two things on top of the usual fields. (1) `/Rect` is
+  the rotated axis-aligned bbox in page coords (`rotatedBBox` in
+  `save.ts`); we widen the rect so cropping viewers still show the whole
+  shape. (2) A Form XObject `/AP` `/N` whose local `/BBox` matches `/Rect`'s
+  dimensions; the content stream applies a `cos sin -sin cos tx ty cm`
+  matrix that rotates around the rect center, then draws the shape in its
+  un-rotated frame (a stroked `re` for rect, four cubic Béziers for oval,
+  `BT … Tj … ET` per line for freetext referencing a Standard-14 font
+  embedded into the page's resources). External viewers honor the AP so
+  rotated shapes look right outside our app. For round-trip we also write
+  `/PdfRotation` (PDF number, radians) on the annotation dict; on open we
+  read that back exactly and recover the un-rotated `(x, y, w, h)` via
+  `unrotateRect` (inverse of `rotatedBBox`).
 - **Round-trip on reopen** ✅: `loadAnnotations` parses `/Annots` on open and
   rehydrates them into the edit graph, keyed by the same `/NM` we wrote on
   save. NM ids carry an `OWN_NM_PREFIX` (`p4l-`) so we only round-trip our
@@ -414,7 +438,7 @@ window.pdf = {
 1. **M0 — Skeleton** ✅: Electron + Vite + React boilerplate, 1-window-per-doc with blank-window reuse, PDFium-WASM rendering to `<canvas>`, custom toolbar (no browser chrome), AppImage builds, drag-drop / double-click open.
 2. **M1 — Viewport + nav** ✅: virtualized rendering, thumbnail rail, page sync, zoom modes, Ctrl+F search with bbox highlights, full keyboard nav, system font mapper.
 3. **M2 — Page ops** ✅: rotate ✅, delete ✅, drag-reorder ✅, multi-select ✅, undo/redo with snapshot stacks ✅, dirty indicator ✅, Save / Save As / Export Selection As ✅ via pdf-lib bake, Insert-from-other-PDF ✅, Merge ✅ (both via multi-source `VirtualPage {sourceId, ...}` and a secondary-source registry in main). Sidecar crash recovery: deferred to M6.
-4. **M3 — Annotations** ◐: overlay canvas ✅, rectangle ✅ + oval ✅ + arrow ✅ + line ✅ (draw + select + move + resize/endpoint-drag ✅ + delete + undo/redo + `/Square` / `/Circle` / `/Line` write-back), inline style picker (color / width / fill) ✅, sticky notes ✅ (`/Text` write-back, popover editor), free-text boxes ✅ (`/FreeText` write-back with DA, in-place textarea editor, font/size/color props). Remaining: rotate handle.
+4. **M3 — Annotations** ✅: overlay canvas, rectangle + oval + arrow + line (draw + select + move + resize/endpoint-drag + delete + undo/redo + `/Square` / `/Circle` / `/Line` write-back), inline style picker (color / width / fill), sticky notes (`/Text` write-back, popover editor), free-text boxes (`/FreeText` write-back with DA, in-place textarea editor, font/size/color props), rotate handle (rect / oval / freetext, free angle, Shift snaps to 15°; baked as a `/AP` `/N` Form XObject so external viewers see the rotation, with our own `/PdfRotation` key holding the exact radians for round-trip).
 5. **M4 — Forms**: AcroForm read-back on save; XFA fallback path with banner.
 6. **M5 — Print**: CUPS pipeline, custom dialog, status.
 7. **M6 — Polish + AppImage release**: real icon, MIME registration, recent files, sidecar crash recovery, CI release pipeline.

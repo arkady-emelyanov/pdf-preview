@@ -40,6 +40,12 @@ export interface BoxAnnotationBase {
   fill?: string
   /** 0..1 */
   opacity: number
+  /**
+   * CCW rotation in radians around the bbox center, in PDF coords (Y-up).
+   * Omitted / 0 means axis-aligned. (x, y, w, h) describe the un-rotated bbox
+   * so geometry doesn't have to change every frame of a rotate drag.
+   */
+  rotation?: number
   author?: string
   /** Epoch ms. */
   created: number
@@ -112,6 +118,8 @@ export interface FreeTextAnnotation {
   /** CSS hex (`#rrggbb`). */
   color: string
   opacity: number
+  /** Same convention as `BoxAnnotationBase.rotation`. */
+  rotation?: number
   author?: string
   created: number
   modified: number
@@ -152,7 +160,9 @@ export function newId(): string {
 
 export function makeBox(
   kind: 'rect' | 'oval',
-  init: { x: number; y: number; w: number; h: number } & Partial<BoxStyle> & { author?: string }
+  init: { x: number; y: number; w: number; h: number; rotation?: number } & Partial<BoxStyle> & {
+    author?: string
+  }
 ): Annotation {
   const now = Date.now()
   return {
@@ -166,6 +176,7 @@ export function makeBox(
     strokeWidth: init.strokeWidth ?? defaultBoxStyle.strokeWidth,
     fill: init.fill,
     opacity: init.opacity ?? defaultBoxStyle.opacity,
+    rotation: init.rotation,
     author: init.author,
     created: now,
     modified: now
@@ -211,6 +222,7 @@ export function makeFreeText(init: {
   fontSize?: number
   color?: string
   opacity?: number
+  rotation?: number
   author?: string
 }): FreeTextAnnotation {
   const now = Date.now()
@@ -231,6 +243,7 @@ export function makeFreeText(init: {
     fontSize,
     color: init.color ?? FREETEXT_DEFAULT_COLOR,
     opacity: init.opacity ?? 1,
+    rotation: init.rotation,
     author: init.author,
     created: now,
     modified: now
@@ -349,12 +362,13 @@ export function hitTestFreeText(
   ptY: number,
   tolerancePt = 4
 ): boolean {
+  const { x: lx, y: ly } = toLocalFrame(a, ptX, ptY)
   const t = tolerancePt
   return (
-    ptX >= a.x - t &&
-    ptX <= a.x + a.w + t &&
-    ptY >= a.y - t &&
-    ptY <= a.y + a.h + t
+    lx >= a.x - t &&
+    lx <= a.x + a.w + t &&
+    ly >= a.y - t &&
+    ly <= a.y + a.h + t
   )
 }
 
@@ -401,6 +415,7 @@ export function annotationsEqual(
       if (x.fontSize !== y.fontSize) return false
       if (x.color !== y.color) return false
       if (x.opacity !== y.opacity) return false
+      if ((x.rotation ?? 0) !== (y.rotation ?? 0)) return false
     } else if (
       !isLine(x) && !isLine(y) && !isNote(x) && !isNote(y) && !isFreeText(x) && !isFreeText(y)
     ) {
@@ -408,6 +423,7 @@ export function annotationsEqual(
       if (x.opacity !== y.opacity) return false
       if (x.x !== y.x || x.y !== y.y || x.w !== y.w || x.h !== y.h) return false
       if (x.fill !== y.fill) return false
+      if ((x.rotation ?? 0) !== (y.rotation ?? 0)) return false
     }
   }
   return true
@@ -449,6 +465,51 @@ export type HandlePos = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w'
 
 export const HANDLES: HandlePos[] = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w']
 
+/** Distance above the bbox top edge where the rotate handle sits, in PDF
+ *  points. Far enough that it doesn't overlap the `n` handle. */
+export const ROTATE_HANDLE_OFFSET_PT = 18
+
+export interface RotatableBox {
+  x: number
+  y: number
+  w: number
+  h: number
+  rotation?: number
+}
+
+/** Rotate (px, py) around (cx, cy) by `angle` radians (CCW). */
+export function rotatePoint(
+  px: number,
+  py: number,
+  cx: number,
+  cy: number,
+  angle: number
+): { x: number; y: number } {
+  if (angle === 0) return { x: px, y: py }
+  const dx = px - cx
+  const dy = py - cy
+  const c = Math.cos(angle)
+  const s = Math.sin(angle)
+  return { x: cx + dx * c - dy * s, y: cy + dx * s + dy * c }
+}
+
+/**
+ * Transform a PDF-point (ptX, ptY) into the annotation's local (un-rotated)
+ * frame so existing axis-aligned hit-tests still work.
+ */
+export function toLocalFrame(
+  a: RotatableBox,
+  ptX: number,
+  ptY: number
+): { x: number; y: number } {
+  const rot = a.rotation ?? 0
+  if (rot === 0) return { x: ptX, y: ptY }
+  const cx = a.x + a.w / 2
+  const cy = a.y + a.h / 2
+  const p = rotatePoint(ptX, ptY, cx, cy, -rot)
+  return p
+}
+
 /**
  * Recompute a rect after dragging one handle by (dx, dy) in PDF page points.
  * If the user drags a side past the opposite side, the rect flips cleanly.
@@ -475,37 +536,71 @@ export function resizeRect(
   }
 }
 
+/** Handle center in PDF coords for a (possibly rotated) bbox. */
+export function handleCenterPt(
+  pos: HandlePos,
+  a: RotatableBox
+): { x: number; y: number } {
+  // Un-rotated handle positions in PDF coords first.
+  const left = a.x
+  const right = a.x + a.w
+  const bot = a.y
+  const top = a.y + a.h
+  const mx = (left + right) / 2
+  const my = (bot + top) / 2
+  let px: number, py: number
+  switch (pos) {
+    case 'nw': px = left;  py = top;  break
+    case 'n':  px = mx;    py = top;  break
+    case 'ne': px = right; py = top;  break
+    case 'e':  px = right; py = my;   break
+    case 'se': px = right; py = bot;  break
+    case 's':  px = mx;    py = bot;  break
+    case 'sw': px = left;  py = bot;  break
+    case 'w':  px = left;  py = my;   break
+  }
+  if (a.rotation) {
+    const c = rotatePoint(px, py, mx, my, a.rotation)
+    return { x: c.x, y: c.y }
+  }
+  return { x: px, y: py }
+}
+
 /** Canvas-space center of a handle for a given rect annotation. */
 export function handleCenter(
   pos: HandlePos,
-  a: { x: number; y: number; w: number; h: number },
+  a: RotatableBox,
   pageHeightPt: number,
   scale: number
 ): { cx: number; cy: number } {
-  const left = a.x * scale
-  const right = (a.x + a.w) * scale
-  const top = (pageHeightPt - (a.y + a.h)) * scale
-  const bot = (pageHeightPt - a.y) * scale
-  const mx = (left + right) / 2
-  const my = (top + bot) / 2
-  switch (pos) {
-    case 'nw':
-      return { cx: left, cy: top }
-    case 'n':
-      return { cx: mx, cy: top }
-    case 'ne':
-      return { cx: right, cy: top }
-    case 'e':
-      return { cx: right, cy: my }
-    case 'se':
-      return { cx: right, cy: bot }
-    case 's':
-      return { cx: mx, cy: bot }
-    case 'sw':
-      return { cx: left, cy: bot }
-    case 'w':
-      return { cx: left, cy: my }
-  }
+  const p = handleCenterPt(pos, a)
+  return { cx: p.x * scale, cy: (pageHeightPt - p.y) * scale }
+}
+
+/** Rotate-handle anchor in PDF coords: midpoint of the top edge plus an
+ *  offset in the rotated +y direction. */
+export function rotateHandleCenterPt(a: RotatableBox): { x: number; y: number } {
+  const mx = a.x + a.w / 2
+  const top = a.y + a.h
+  const rot = a.rotation ?? 0
+  // The "up from the top edge" direction in PDF coords is (0, +1) un-rotated,
+  // rotated by `rot` becomes (-sin rot, cos rot).
+  const dx = -Math.sin(rot) * ROTATE_HANDLE_OFFSET_PT
+  const dy = Math.cos(rot) * ROTATE_HANDLE_OFFSET_PT
+  const cx = a.x + a.w / 2
+  const cy = a.y + a.h / 2
+  const top0 = { x: mx, y: top }
+  const topR = rotatePoint(top0.x, top0.y, cx, cy, rot)
+  return { x: topR.x + dx, y: topR.y + dy }
+}
+
+export function rotateHandleCenter(
+  a: RotatableBox,
+  pageHeightPt: number,
+  scale: number
+): { cx: number; cy: number } {
+  const p = rotateHandleCenterPt(a)
+  return { cx: p.x * scale, cy: (pageHeightPt - p.y) * scale }
 }
 
 export function hitTestRect(
@@ -514,12 +609,13 @@ export function hitTestRect(
   ptY: number,
   tolerancePt = 4
 ): boolean {
+  const { x: lx, y: ly } = toLocalFrame(a, ptX, ptY)
   const t = tolerancePt
   return (
-    ptX >= a.x - t &&
-    ptX <= a.x + a.w + t &&
-    ptY >= a.y - t &&
-    ptY <= a.y + a.h + t
+    lx >= a.x - t &&
+    lx <= a.x + a.w + t &&
+    ly >= a.y - t &&
+    ly <= a.y + a.h + t
   )
 }
 
@@ -534,8 +630,9 @@ export function hitTestOval(
   const rx = a.w / 2 + tolerancePt
   const ry = a.h / 2 + tolerancePt
   if (rx <= 0 || ry <= 0) return false
-  const dx = (ptX - cx) / rx
-  const dy = (ptY - cy) / ry
+  const { x: lx, y: ly } = toLocalFrame(a, ptX, ptY)
+  const dx = (lx - cx) / rx
+  const dy = (ly - cy) / ry
   return dx * dx + dy * dy <= 1
 }
 

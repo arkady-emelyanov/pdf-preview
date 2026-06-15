@@ -72,6 +72,45 @@ function readNumber(v: unknown): number {
   return 0
 }
 
+/**
+ * Recover the un-rotated bbox (x, y, w, h) given:
+ *   - the rotated axis-aligned bbox in page coords [x1, y1, x2, y2] from /Rect
+ *   - the rotation angle θ (radians) we wrote alongside it
+ * Inverse of `rotatedBBox` in save.ts. Falls back to the axis-aligned rect on
+ * a singular angle (multiples of 45° where the linear system has det 0).
+ */
+function unrotateRect(
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number,
+  rot: number
+): { x: number; y: number; w: number; h: number } {
+  const W = Math.abs(x2 - x1)
+  const H = Math.abs(y2 - y1)
+  const cx = (x1 + x2) / 2
+  const cy = (y1 + y2) / 2
+  if (rot === 0) return { x: Math.min(x1, x2), y: Math.min(y1, y2), w: W, h: H }
+  const c = Math.abs(Math.cos(rot))
+  const s = Math.abs(Math.sin(rot))
+  const det = c * c - s * s
+  let w = W
+  let h = H
+  if (Math.abs(det) > 1e-6) {
+    w = (c * W - s * H) / det
+    h = (-s * W + c * H) / det
+  } else {
+    // 45° / 135° / ... — un-rotated dims are unrecoverable from the bbox
+    // alone; fall back to assuming a square.
+    const side = (W + H) / 2 / (c + s)
+    w = side
+    h = side
+  }
+  if (w < 0) w = 0
+  if (h < 0) h = 0
+  return { x: cx - w / 2, y: cy - h / 2, w, h }
+}
+
 function readRgb(arr: PDFArray | undefined, fallback: string): string {
   if (!arr || arr.size() < 3) return fallback
   const r = Math.round(Math.max(0, Math.min(1, readNumber(arr.lookup(0)))) * 255)
@@ -134,6 +173,11 @@ function parseAnnotation(dict: PDFDict): Annotation | null {
   const ca = dict.lookup(PDFName.of('CA'))
   const opacity = ca instanceof PDFNumber ? ca.asNumber() : 1
   const author = decodeText(dict.lookup(PDFName.of('T'))) || undefined
+  // Our custom rotation tag (radians, CCW around bbox center). We expand
+  // /Rect to the rotated axis-aligned bbox on save, so to reconstruct the
+  // un-rotated (x, y, w, h) we shrink the rect by the rotation.
+  const pdfRot = dict.lookup(PDFName.of('PdfRotation'))
+  const rotation = pdfRot instanceof PDFNumber ? pdfRot.asNumber() : 0
   const now = Date.now()
 
   if (subtype === '/Square' || subtype === '/Circle') {
@@ -143,17 +187,19 @@ function parseAnnotation(dict: PDFDict): Annotation | null {
     const y2 = readNumber(rectNode.lookup(3))
     const ic = dict.lookup(PDFName.of('IC'))
     const fill = ic instanceof PDFArray ? readRgb(ic, '#d33') : undefined
+    const unrot = unrotateRect(x1, y1, x2, y2, rotation)
     const a: RectAnnotation | OvalAnnotation = {
       id: nm,
       kind: subtype === '/Circle' ? 'oval' : 'rect',
-      x: Math.min(x1, x2),
-      y: Math.min(y1, y2),
-      w: Math.abs(x2 - x1),
-      h: Math.abs(y2 - y1),
+      x: unrot.x,
+      y: unrot.y,
+      w: unrot.w,
+      h: unrot.h,
       stroke,
       strokeWidth,
       fill,
       opacity,
+      rotation: rotation || undefined,
       author,
       created: now,
       modified: now
@@ -193,18 +239,20 @@ function parseAnnotation(dict: PDFDict): Annotation | null {
     const body = decodeText(dict.lookup(PDFName.of('Contents')))
     const da = decodeText(dict.lookup(PDFName.of('DA')))
     const parsed = parseDA(da)
+    const unrot = unrotateRect(x1, y1, x2, y2, rotation)
     const a: FreeTextAnnotation = {
       id: nm,
       kind: 'freetext',
-      x: Math.min(x1, x2),
-      y: Math.min(y1, y2),
-      w: Math.abs(x2 - x1),
-      h: Math.abs(y2 - y1),
+      x: unrot.x,
+      y: unrot.y,
+      w: unrot.w,
+      h: unrot.h,
       body,
       font: parsed.font,
       fontSize: parsed.size,
       color: parsed.color,
       opacity,
+      rotation: rotation || undefined,
       author,
       created: now,
       modified: now

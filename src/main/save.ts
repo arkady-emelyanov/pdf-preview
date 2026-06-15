@@ -5,17 +5,24 @@ import {
   PDFHexString,
   PDFName,
   PDFNumber,
+  PDFRawStream,
+  PDFRef,
   PDFString,
+  StandardFonts,
   degrees,
+  type PDFContext,
   type PDFPage
 } from 'pdf-lib'
 import type { VirtualPage } from '../shared/edit'
 import {
+  FREETEXT_LINE_HEIGHT,
   NOTE_SIZE_PT,
   OWN_NM_PREFIX,
   lineBBox,
   parseHexColor,
+  rotatePoint,
   type Annotation,
+  type FreeTextAnnotation,
   type FreeTextFont
 } from '../shared/annotations'
 import { PDFBool, PDFDict } from 'pdf-lib'
@@ -83,7 +90,7 @@ export async function saveDoc(
       // left intact.
       stripOwnedAnnotations(page)
       const anns = batch[k].annotations
-      if (anns && anns.length > 0) writeAnnotations(page, anns)
+      if (anns && anns.length > 0) writeAnnotations(out, page, anns)
     }
     i = j
   }
@@ -118,12 +125,28 @@ function stripOwnedAnnotations(page: PDFPage): void {
 }
 
 /** Append our annotations to a copied output page as standard PDF annot dicts. */
-function writeAnnotations(page: PDFPage, anns: Annotation[]): void {
+function writeAnnotations(doc: PDFDocument, page: PDFPage, anns: Annotation[]): void {
   const ctx = page.doc.context
   // Existing /Annots, if any — preserve them.
   const node = page.node
   const existing = node.Annots()
   const arr = existing instanceof PDFArray ? existing : ctx.obj([])
+
+  // Lazy per-page cache of embedded standard fonts (only built if a rotated
+  // free-text annotation needs an AP stream that draws glyphs).
+  const fontRefs: Partial<Record<FreeTextFont, PDFRef>> = {}
+  const getFontRef = (font: FreeTextFont): PDFRef => {
+    if (fontRefs[font]) return fontRefs[font]!
+    const std =
+      font === 'Times'
+        ? StandardFonts.TimesRoman
+        : font === 'Courier'
+          ? StandardFonts.Courier
+          : StandardFonts.Helvetica
+    const f = doc.embedStandardFont(std)
+    fontRefs[font] = f.ref
+    return f.ref
+  }
 
   for (const a of anns) {
     // Notes don't have a stroke — `rgb` is unused on that branch (it derives
@@ -170,10 +193,8 @@ function writeAnnotations(page: PDFPage, anns: Annotation[]): void {
       if (!a.author) dict.delete(PDFName.of('T'))
     } else if (a.kind === 'freetext') {
       const rgb = parseHexColor(a.color) ?? [0, 0, 0]
-      const x1 = a.x
-      const y1 = a.y
-      const x2 = a.x + a.w
-      const y2 = a.y + a.h
+      const rot = a.rotation ?? 0
+      const bb = rotatedBBox(a.x, a.y, a.w, a.h, rot)
       // DA = default appearance: `/<fontTag> <size> Tf  r g b rg`. Acrobat /
       // Preview / Okular all read this on open to pick the font + color when
       // they regenerate the appearance stream.
@@ -181,7 +202,7 @@ function writeAnnotations(page: PDFPage, anns: Annotation[]): void {
       dict = ctx.obj({
         Type: 'Annot',
         Subtype: 'FreeText',
-        Rect: [x1, y1, x2, y2],
+        Rect: [bb.x, bb.y, bb.x + bb.w, bb.y + bb.h],
         Contents: PDFHexString.fromText(a.body),
         DA: PDFString.of(da),
         Q: 0,
@@ -192,17 +213,19 @@ function writeAnnotations(page: PDFPage, anns: Annotation[]): void {
       })
       if (!a.author) dict.delete(PDFName.of('T'))
       dict.set(PDFName.of('CA'), PDFNumber.of(a.opacity))
+      if (rot !== 0) {
+        dict.set(PDFName.of('PdfRotation'), PDFNumber.of(rot))
+        attachFreeTextAppearance(ctx, dict, a, bb, getFontRef(a.font))
+      }
     } else if (a.kind === 'rect' || a.kind === 'oval') {
       const rgb = parseHexColor(a.stroke) ?? [0.8, 0.2, 0.2]
-      const x1 = a.x
-      const y1 = a.y
-      const x2 = a.x + a.w
-      const y2 = a.y + a.h
+      const rot = a.rotation ?? 0
+      const bb = rotatedBBox(a.x, a.y, a.w, a.h, rot)
       const subtype = a.kind === 'oval' ? 'Circle' : 'Square'
       dict = ctx.obj({
         Type: 'Annot',
         Subtype: subtype,
-        Rect: [x1, y1, x2, y2],
+        Rect: [bb.x, bb.y, bb.x + bb.w, bb.y + bb.h],
         C: rgb,
         CA: a.opacity,
         F: 4,
@@ -216,6 +239,10 @@ function writeAnnotations(page: PDFPage, anns: Annotation[]): void {
       if (a.fill) {
         const fillRgb = parseHexColor(a.fill)
         if (fillRgb) dict.set(PDFName.of('IC'), ctx.obj(fillRgb))
+      }
+      if (rot !== 0) {
+        dict.set(PDFName.of('PdfRotation'), PDFNumber.of(rot))
+        attachShapeAppearance(ctx, dict, a, bb)
       }
     } else {
       continue
@@ -244,4 +271,177 @@ function toPdfDate(d: Date): string {
   return `D:${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(d.getUTCDate())}${pad(
     d.getUTCHours()
   )}${pad(d.getUTCMinutes())}${pad(d.getUTCSeconds())}Z`
+}
+
+/** Axis-aligned bbox in page coords for an annotation that is rotated by
+ *  `rot` radians (CCW) around the bbox center. Returns the same bbox unchanged
+ *  for rot=0. */
+function rotatedBBox(
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  rot: number
+): { x: number; y: number; w: number; h: number } {
+  if (rot === 0) return { x, y, w, h }
+  const cx = x + w / 2
+  const cy = y + h / 2
+  const corners = [
+    [x, y],
+    [x + w, y],
+    [x + w, y + h],
+    [x, y + h]
+  ]
+  let minX = Infinity
+  let minY = Infinity
+  let maxX = -Infinity
+  let maxY = -Infinity
+  for (const [px, py] of corners) {
+    const r = rotatePoint(px, py, cx, cy, rot)
+    if (r.x < minX) minX = r.x
+    if (r.y < minY) minY = r.y
+    if (r.x > maxX) maxX = r.x
+    if (r.y > maxY) maxY = r.y
+  }
+  return { x: minX, y: minY, w: maxX - minX, h: maxY - minY }
+}
+
+/** Format a number for a PDF content stream — short, no scientific notation. */
+function fmt(n: number): string {
+  if (!Number.isFinite(n)) return '0'
+  const s = n.toFixed(4)
+  return s.replace(/\.?0+$/, '') || '0'
+}
+
+/** Escape a string for a PDF literal `(...)` content-stream operand. */
+function escapeStr(s: string): string {
+  return s.replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)')
+}
+
+/**
+ * Build a Form XObject (/Type/XObject/Subtype/Form) wrapping `contents`, with
+ * the appearance space `[0 0 bbox.w bbox.h]`. Returns the PDFRef so callers
+ * can use it as an AP /N entry.
+ *
+ * The bbox here is the *local* form-space bbox; pairing it with the
+ * annotation's /Rect (set to the same width/height) means the appearance
+ * lands in the page-space rectangle [bb.x, bb.y, bb.x+w, bb.y+h] without any
+ * scale surprise from PDF's implicit BBox→Rect alignment.
+ */
+function buildFormXObject(
+  ctx: PDFContext,
+  contents: string,
+  bboxW: number,
+  bboxH: number,
+  resources?: PDFDict
+): PDFRef {
+  const bytes = new TextEncoder().encode(contents)
+  const dict = ctx.obj({
+    Type: 'XObject',
+    Subtype: 'Form',
+    FormType: 1,
+    BBox: [0, 0, bboxW, bboxH],
+    Resources: resources ?? ctx.obj({ ProcSet: [PDFName.of('PDF'), PDFName.of('Text')] }),
+    Length: bytes.length
+  }) as PDFDict
+  const stream = PDFRawStream.of(dict, bytes)
+  return ctx.register(stream)
+}
+
+/** Common prefix that translates to the rotated-bbox-relative center, rotates
+ *  CCW by `rot`, then translates so the un-rotated rect's bottom-left is at
+ *  the origin in the local coord system. Returns ops to draw the un-rotated
+ *  shape with `x = 0, y = 0, w, h`. */
+function rotationPrologue(
+  bb: { x: number; y: number; w: number; h: number },
+  innerW: number,
+  innerH: number,
+  rot: number
+): string {
+  // Local form space origin is bb's bottom-left in page coords. The shape's
+  // center in form space sits at (bb.w/2, bb.h/2). Translate the un-rotated
+  // shape so its center is at the form-space center, rotate, and we draw it
+  // axis-aligned afterwards.
+  const cx = bb.w / 2
+  const cy = bb.h / 2
+  const c = Math.cos(rot)
+  const s = Math.sin(rot)
+  // cm: a b c d e f → multiplies current matrix. We want translate(cx,cy) *
+  // rotate(rot) * translate(-innerW/2, -innerH/2), composed right-to-left.
+  // PDF cm composes left-to-right; combine ourselves into a single matrix.
+  const a = c
+  const b = s
+  const cc = -s
+  const d = c
+  const e = cx - (c * (innerW / 2) + -s * (innerH / 2))
+  const f = cy - (s * (innerW / 2) + c * (innerH / 2))
+  return `${fmt(a)} ${fmt(b)} ${fmt(cc)} ${fmt(d)} ${fmt(e)} ${fmt(f)} cm\n`
+}
+
+function attachShapeAppearance(
+  ctx: PDFContext,
+  dict: PDFDict,
+  a: Annotation & { kind: 'rect' | 'oval'; w: number; h: number },
+  bb: { x: number; y: number; w: number; h: number }
+): void {
+  const rot = a.rotation ?? 0
+  const rgb = parseHexColor(a.stroke) ?? [0.8, 0.2, 0.2]
+  const fillRgb = a.fill ? parseHexColor(a.fill) : null
+  let ops = `q\n${fmt(rgb[0])} ${fmt(rgb[1])} ${fmt(rgb[2])} RG\n`
+  if (fillRgb) ops += `${fmt(fillRgb[0])} ${fmt(fillRgb[1])} ${fmt(fillRgb[2])} rg\n`
+  ops += `${fmt(a.strokeWidth)} w\n`
+  ops += rotationPrologue(bb, a.w, a.h, rot)
+  if (a.kind === 'rect') {
+    ops += `0 0 ${fmt(a.w)} ${fmt(a.h)} re\n`
+    ops += fillRgb ? 'B\n' : 'S\n'
+  } else {
+    // Approximate ellipse with 4 cubic Béziers. Magic number 0.5522847498 for
+    // unit-circle Bezier approximation.
+    const k = 0.5522847498
+    const w2 = a.w / 2
+    const h2 = a.h / 2
+    const cx = w2
+    const cy = h2
+    ops += `${fmt(cx + w2)} ${fmt(cy)} m\n`
+    ops += `${fmt(cx + w2)} ${fmt(cy + h2 * k)} ${fmt(cx + w2 * k)} ${fmt(cy + h2)} ${fmt(cx)} ${fmt(cy + h2)} c\n`
+    ops += `${fmt(cx - w2 * k)} ${fmt(cy + h2)} ${fmt(cx - w2)} ${fmt(cy + h2 * k)} ${fmt(cx - w2)} ${fmt(cy)} c\n`
+    ops += `${fmt(cx - w2)} ${fmt(cy - h2 * k)} ${fmt(cx - w2 * k)} ${fmt(cy - h2)} ${fmt(cx)} ${fmt(cy - h2)} c\n`
+    ops += `${fmt(cx + w2 * k)} ${fmt(cy - h2)} ${fmt(cx + w2)} ${fmt(cy - h2 * k)} ${fmt(cx + w2)} ${fmt(cy)} c\n`
+    ops += fillRgb ? 'B\n' : 'S\n'
+  }
+  ops += 'Q\n'
+  const ref = buildFormXObject(ctx, ops, bb.w, bb.h)
+  dict.set(PDFName.of('AP'), ctx.obj({ N: ref }))
+}
+
+function attachFreeTextAppearance(
+  ctx: PDFContext,
+  dict: PDFDict,
+  a: FreeTextAnnotation,
+  bb: { x: number; y: number; w: number; h: number },
+  fontRef: PDFRef
+): void {
+  const rot = a.rotation ?? 0
+  const rgb = parseHexColor(a.color) ?? [0, 0, 0]
+  let ops = `q\n${fmt(rgb[0])} ${fmt(rgb[1])} ${fmt(rgb[2])} rg\n`
+  ops += rotationPrologue(bb, a.w, a.h, rot)
+  const lineH = a.fontSize * FREETEXT_LINE_HEIGHT
+  const lines = a.body.length === 0 ? [''] : a.body.split('\n')
+  // PDF text origin is baseline. Draw each line so the top of its em box sits
+  // at (a.h - i*lineH); approximate baseline at (top - fontSize * 0.8).
+  ops += 'BT\n'
+  ops += `/F1 ${fmt(a.fontSize)} Tf\n`
+  for (let i = 0; i < lines.length; i++) {
+    const baseline = a.h - i * lineH - a.fontSize * 0.85
+    if (baseline < -lineH) break
+    ops += `1 0 0 1 0 ${fmt(baseline)} Tm\n`
+    ops += `(${escapeStr(lines[i])}) Tj\n`
+  }
+  ops += 'ET\nQ\n'
+  const resources = ctx.obj({
+    Font: ctx.obj({ F1: fontRef }),
+    ProcSet: [PDFName.of('PDF'), PDFName.of('Text')]
+  })
+  const ref = buildFormXObject(ctx, ops, bb.w, bb.h, resources)
+  dict.set(PDFName.of('AP'), ctx.obj({ N: ref }))
 }

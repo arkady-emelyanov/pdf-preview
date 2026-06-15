@@ -319,3 +319,26 @@ describe('parseHexColor', () => {
     expect(parseHexColor('#zz0000')).toBeNull()
   })
 })
+
+describe('rotated hit-tests', () => {
+  it('hitTestRect rotates the test point into the un-rotated frame', () => {
+    // 100×40 rect centered at (100, 100), rotated 90° CCW. The rotated shape
+    // occupies a 40-wide × 100-tall slab in page coords.
+    const a = makeBox('rect', { x: 50, y: 80, w: 100, h: 40 })
+    a.rotation = Math.PI / 2
+    // Point near the top of the rotated shape — well outside the axis-aligned
+    // bbox to the right but inside the rotated one.
+    expect(hitTestRect(a as never, 100, 145, 0)).toBe(true)
+    // Point that WOULD hit if we ignored rotation but doesn't now.
+    expect(hitTestRect(a as never, 145, 100, 0)).toBe(false)
+  })
+
+  it('handleCenter rotates handles around the bbox center', () => {
+    const a = { x: 0, y: 0, w: 100, h: 40, rotation: Math.PI / 2 }
+    const p = handleCenter('ne', a, 200 /* pageH */, 1 /* scale */)
+    // 'ne' un-rotated is at (100, 40). After 90° CCW around (50, 20) it
+    // becomes (30, 70) in PDF coords → (30, 130) in canvas (Y flipped).
+    expect(p.cx).toBeCloseTo(30, 4)
+    expect(p.cy).toBeCloseTo(200 - 70, 4)
+  })
+})

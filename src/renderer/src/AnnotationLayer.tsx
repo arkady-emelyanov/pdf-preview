@@ -20,16 +20,21 @@ import {
   pointToCanvas,
   rectToCanvas,
   resizeRect,
+  rotateHandleCenter,
+  toLocalFrame,
   type Annotation,
   type BoxAnnotationBase,
   type FreeTextAnnotation,
   type HandlePos,
   type LineAnnotation,
-  type NoteAnnotation
+  type NoteAnnotation,
+  type RotatableBox
 } from '../../shared/annotations'
 
 const HANDLE_SIZE_PX = 8
 const HANDLE_HIT_PX = 10
+const ROTATE_HANDLE_R_PX = 6
+const ROTATE_HANDLE_HIT_PX = 10
 
 const HANDLE_CURSORS: Record<HandlePos, string> = {
   nw: 'nwse-resize',
@@ -87,6 +92,7 @@ type ResizeState =
       origY: number
       origW: number
       origH: number
+      origRotation: number
     }
   | {
       kind: 'line'
@@ -94,36 +100,75 @@ type ResizeState =
       end: 'h1' | 'h2'
     }
 
+interface RotateState {
+  id: string
+  centerPtX: number
+  centerPtY: number
+  /** Pointer angle (radians, atan2 in PDF coords) at drag start. */
+  startAngle: number
+  /** Annotation rotation at drag start. */
+  origRotation: number
+}
+
+/**
+ * Push a canvas-space rotation transform centered on a rotatable bbox's
+ * center. Stored rotation is CCW in PDF coords (Y-up); canvas Y is flipped,
+ * so we pass the negated angle to `ctx.rotate`. Caller must restore.
+ */
+function withRotation(
+  ctx: CanvasRenderingContext2D,
+  a: RotatableBox,
+  pageHeightPt: number,
+  scale: number,
+  draw: () => void
+): void {
+  const rot = a.rotation ?? 0
+  if (rot === 0) {
+    draw()
+    return
+  }
+  const ccx = (a.x + a.w / 2) * scale
+  const ccy = (pageHeightPt - (a.y + a.h / 2)) * scale
+  ctx.save()
+  ctx.translate(ccx, ccy)
+  ctx.rotate(-rot)
+  ctx.translate(-ccx, -ccy)
+  draw()
+  ctx.restore()
+}
+
 function drawBox(
   ctx: CanvasRenderingContext2D,
   a: BoxAnnotationBase & { kind: 'rect' | 'oval'; fill?: string },
   pageHeightPt: number,
   scale: number
 ): void {
-  const r = rectToCanvas(a, pageHeightPt, scale)
-  ctx.globalAlpha = a.opacity
-  ctx.lineWidth = a.strokeWidth
-  ctx.strokeStyle = a.stroke
-  if (a.kind === 'oval') {
-    const cx = r.x + r.w / 2
-    const cy = r.y + r.h / 2
-    if (a.fill) {
-      ctx.fillStyle = a.fill
+  withRotation(ctx, a, pageHeightPt, scale, () => {
+    const r = rectToCanvas(a, pageHeightPt, scale)
+    ctx.globalAlpha = a.opacity
+    ctx.lineWidth = a.strokeWidth
+    ctx.strokeStyle = a.stroke
+    if (a.kind === 'oval') {
+      const cx = r.x + r.w / 2
+      const cy = r.y + r.h / 2
+      if (a.fill) {
+        ctx.fillStyle = a.fill
+        ctx.beginPath()
+        ctx.ellipse(cx, cy, r.w / 2, r.h / 2, 0, 0, Math.PI * 2)
+        ctx.fill()
+      }
       ctx.beginPath()
       ctx.ellipse(cx, cy, r.w / 2, r.h / 2, 0, 0, Math.PI * 2)
-      ctx.fill()
+      ctx.stroke()
+    } else {
+      if (a.fill) {
+        ctx.fillStyle = a.fill
+        ctx.fillRect(r.x, r.y, r.w, r.h)
+      }
+      ctx.strokeRect(r.x, r.y, r.w, r.h)
     }
-    ctx.beginPath()
-    ctx.ellipse(cx, cy, r.w / 2, r.h / 2, 0, 0, Math.PI * 2)
-    ctx.stroke()
-  } else {
-    if (a.fill) {
-      ctx.fillStyle = a.fill
-      ctx.fillRect(r.x, r.y, r.w, r.h)
-    }
-    ctx.strokeRect(r.x, r.y, r.w, r.h)
-  }
-  ctx.globalAlpha = 1
+    ctx.globalAlpha = 1
+  })
 }
 
 function cssFontFamily(font: FreeTextAnnotation['font']): string {
@@ -143,23 +188,25 @@ function drawFreeText(
   pageHeightPt: number,
   scale: number
 ): void {
-  const r = rectToCanvas(a, pageHeightPt, scale)
-  ctx.save()
-  ctx.beginPath()
-  ctx.rect(r.x, r.y, r.w, r.h)
-  ctx.clip()
-  ctx.globalAlpha = a.opacity
-  const sizePx = a.fontSize * scale
-  ctx.font = `${sizePx}px ${cssFontFamily(a.font)}`
-  ctx.fillStyle = a.color
-  ctx.textBaseline = 'top'
-  const lineHpx = sizePx * FREETEXT_LINE_HEIGHT
-  const lines = a.body.length === 0 ? [''] : a.body.split('\n')
-  for (let i = 0; i < lines.length; i++) {
-    ctx.fillText(lines[i], r.x, r.y + i * lineHpx)
-  }
-  ctx.globalAlpha = 1
-  ctx.restore()
+  withRotation(ctx, a, pageHeightPt, scale, () => {
+    const r = rectToCanvas(a, pageHeightPt, scale)
+    ctx.save()
+    ctx.beginPath()
+    ctx.rect(r.x, r.y, r.w, r.h)
+    ctx.clip()
+    ctx.globalAlpha = a.opacity
+    const sizePx = a.fontSize * scale
+    ctx.font = `${sizePx}px ${cssFontFamily(a.font)}`
+    ctx.fillStyle = a.color
+    ctx.textBaseline = 'top'
+    const lineHpx = sizePx * FREETEXT_LINE_HEIGHT
+    const lines = a.body.length === 0 ? [''] : a.body.split('\n')
+    for (let i = 0; i < lines.length; i++) {
+      ctx.fillText(lines[i], r.x, r.y + i * lineHpx)
+    }
+    ctx.globalAlpha = 1
+    ctx.restore()
+  })
 }
 
 function drawNote(
@@ -325,7 +372,8 @@ export function AnnotationLayer({
   const [draw, setDraw] = useState<DrawState | null>(null)
   const [move, setMove] = useState<MoveState | null>(null)
   const [resize, setResize] = useState<ResizeState | null>(null)
-  const [hoverHandle, setHoverHandle] = useState<HandlePos | 'h1' | 'h2' | null>(null)
+  const [rotateDrag, setRotateDrag] = useState<RotateState | null>(null)
+  const [hoverHandle, setHoverHandle] = useState<HandlePos | 'h1' | 'h2' | 'rot' | null>(null)
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; items: ContextMenuItem[] } | null>(
     null
   )
@@ -435,13 +483,29 @@ export function AnnotationLayer({
       return
     }
     if (isFreeText(a)) {
-      const r = rectToCanvas(a, pageH, sc)
-      ctx.strokeStyle = '#3aa0ff'
-      ctx.setLineDash([4, 3])
-      ctx.lineWidth = 1
-      ctx.strokeRect(r.x - 2, r.y - 2, r.w + 4, r.h + 4)
-      ctx.setLineDash([])
+      drawBoxChrome(ctx, a, pageH, sc, false)
       return
+    }
+    drawBoxChrome(ctx, a, pageH, sc, true)
+  }
+
+  /** Marquee + 8 resize handles + rotate handle. Rotation aware. */
+  function drawBoxChrome(
+    ctx: CanvasRenderingContext2D,
+    a: RotatableBox,
+    pageH: number,
+    sc: number,
+    withResizeHandles: boolean
+  ): void {
+    const rot = a.rotation ?? 0
+    // Marquee: rotate the dashed rect with the shape.
+    ctx.save()
+    if (rot !== 0) {
+      const ccx = (a.x + a.w / 2) * sc
+      const ccy = (pageH - (a.y + a.h / 2)) * sc
+      ctx.translate(ccx, ccy)
+      ctx.rotate(-rot)
+      ctx.translate(-ccx, -ccy)
     }
     const r = rectToCanvas(a, pageH, sc)
     ctx.strokeStyle = '#3aa0ff'
@@ -449,15 +513,34 @@ export function AnnotationLayer({
     ctx.lineWidth = 1
     ctx.strokeRect(r.x - 2, r.y - 2, r.w + 4, r.h + 4)
     ctx.setLineDash([])
-    const half = HANDLE_SIZE_PX / 2
-    ctx.fillStyle = '#fff'
-    ctx.strokeStyle = '#3aa0ff'
-    ctx.lineWidth = 1
-    for (const pos of HANDLES) {
-      const { cx, cy } = handleCenter(pos, a, pageH, sc)
-      ctx.fillRect(cx - half, cy - half, HANDLE_SIZE_PX, HANDLE_SIZE_PX)
-      ctx.strokeRect(cx - half, cy - half, HANDLE_SIZE_PX, HANDLE_SIZE_PX)
+    ctx.restore()
+
+    // Resize handles + rotate handle live in screen-aligned squares but at
+    // rotated positions so the chrome doesn't look skewed.
+    if (withResizeHandles) {
+      const half = HANDLE_SIZE_PX / 2
+      ctx.fillStyle = '#fff'
+      ctx.strokeStyle = '#3aa0ff'
+      ctx.lineWidth = 1
+      for (const pos of HANDLES) {
+        const { cx, cy } = handleCenter(pos, a, pageH, sc)
+        ctx.fillRect(cx - half, cy - half, HANDLE_SIZE_PX, HANDLE_SIZE_PX)
+        ctx.strokeRect(cx - half, cy - half, HANDLE_SIZE_PX, HANDLE_SIZE_PX)
+      }
     }
+    // Rotate handle: small circle with a tether line back to the top edge.
+    const { cx: rcx, cy: rcy } = rotateHandleCenter(a, pageH, sc)
+    const topMid = handleCenter('n', a, pageH, sc)
+    ctx.strokeStyle = '#3aa0ff'
+    ctx.beginPath()
+    ctx.moveTo(topMid.cx, topMid.cy)
+    ctx.lineTo(rcx, rcy)
+    ctx.stroke()
+    ctx.fillStyle = '#fff'
+    ctx.beginPath()
+    ctx.arc(rcx, rcy, ROTATE_HANDLE_R_PX, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.stroke()
   }
 
   const localCoords = (e: React.PointerEvent): { cx: number; cy: number } => {
@@ -547,11 +630,11 @@ export function AnnotationLayer({
       return
     }
 
-    // Select tool. Endpoint / corner handles on the selected annotation win first.
+    // Select tool. Endpoint / corner / rotate handles on the selected annotation win first.
     // Notes don't get handles — they're point-anchored, only drag-to-move.
     if (selected && selected.page === virtualIndex) {
       const sel = annotations.find((a) => a.id === selected.id)
-      if (sel && !isNote(sel) && !isFreeText(sel)) {
+      if (sel && !isNote(sel)) {
         if (isLine(sel)) {
           const end = hitLineEndpoint(sel, cx, cy, pageHeightPt, scale)
           if (end) {
@@ -560,22 +643,41 @@ export function AnnotationLayer({
             return
           }
         } else {
-          const hit = hitBoxHandle(sel, cx, cy, pageHeightPt, scale)
-          if (hit) {
+          // Rotate handle (rect / oval / freetext) takes priority above the
+          // top edge.
+          if (hitRotateHandle(sel, cx, cy, pageHeightPt, scale)) {
             const { x: ptX, y: ptY } = canvasToPoint(cx, cy, pageHeightPt, scale)
+            const ccx = sel.x + sel.w / 2
+            const ccy = sel.y + sel.h / 2
             beginLiveEdit()
-            setResize({
-              kind: 'box',
+            setRotateDrag({
               id: sel.id,
-              pos: hit,
-              startPtX: ptX,
-              startPtY: ptY,
-              origX: sel.x,
-              origY: sel.y,
-              origW: sel.w,
-              origH: sel.h
+              centerPtX: ccx,
+              centerPtY: ccy,
+              startAngle: Math.atan2(ptY - ccy, ptX - ccx),
+              origRotation: sel.rotation ?? 0
             })
             return
+          }
+          if (!isFreeText(sel)) {
+            const hit = hitBoxHandle(sel, cx, cy, pageHeightPt, scale)
+            if (hit) {
+              const { x: ptX, y: ptY } = canvasToPoint(cx, cy, pageHeightPt, scale)
+              beginLiveEdit()
+              setResize({
+                kind: 'box',
+                id: sel.id,
+                pos: hit,
+                startPtX: ptX,
+                startPtY: ptY,
+                origX: sel.x,
+                origY: sel.y,
+                origW: sel.w,
+                origH: sel.h,
+                origRotation: sel.rotation ?? 0
+              })
+              return
+            }
           }
         }
       }
@@ -654,26 +756,86 @@ export function AnnotationLayer({
         liveUpdateAnnotation(virtualIndex, resize.id, patch)
       } else {
         const { x: ptX, y: ptY } = canvasToPoint(cx, cy, pageHeightPt, scale)
-        const dx = ptX - resize.startPtX
-        const dy = ptY - resize.startPtY
+        let dx = ptX - resize.startPtX
+        let dy = ptY - resize.startPtY
+        // For rotated bboxes, work in the local un-rotated frame so dragging
+        // the visual "east" handle still grows the width. The center moves
+        // half the local delta; rotating that half-delta back into page coords
+        // gives the new center.
+        const rot = resize.origRotation
+        if (rot !== 0) {
+          const c = Math.cos(rot)
+          const s = Math.sin(rot)
+          // page->local: rotate by -rot
+          const lx = dx * c + dy * s
+          const ly = -dx * s + dy * c
+          dx = lx
+          dy = ly
+        }
         const r = resizeRect(
           { x: resize.origX, y: resize.origY, w: resize.origW, h: resize.origH },
           resize.pos,
           dx,
           dy
         )
-        liveUpdateAnnotation(virtualIndex, resize.id, r)
+        if (rot !== 0) {
+          // Keep the un-dragged corner fixed in page space by recomputing the
+          // new bbox center accordingly. The old center was at orig-bbox
+          // center; the new center shifts in local coords by ((newX - origX) +
+          // (newW - origW)/2, (newY - origY) + (newH - origH)/2) — i.e. the
+          // local midpoint between old and new bbox shifted in the directions
+          // the handle moved. Rotating that shift back to page coords gives
+          // the new page-space center; from there we anchor the new x/y so
+          // (newX, newY) describe the un-rotated frame.
+          const oldLocalCx = resize.origX + resize.origW / 2
+          const oldLocalCy = resize.origY + resize.origH / 2
+          const newLocalCx = r.x + r.w / 2
+          const newLocalCy = r.y + r.h / 2
+          const ldx = newLocalCx - oldLocalCx
+          const ldy = newLocalCy - oldLocalCy
+          const c = Math.cos(rot)
+          const s = Math.sin(rot)
+          const pageDx = ldx * c - ldy * s
+          const pageDy = ldx * s + ldy * c
+          const origPageCx = resize.origX + resize.origW / 2
+          const origPageCy = resize.origY + resize.origH / 2
+          const newPageCx = origPageCx + pageDx
+          const newPageCy = origPageCy + pageDy
+          liveUpdateAnnotation(virtualIndex, resize.id, {
+            x: newPageCx - r.w / 2,
+            y: newPageCy - r.h / 2,
+            w: r.w,
+            h: r.h
+          })
+        } else {
+          liveUpdateAnnotation(virtualIndex, resize.id, r)
+        }
       }
+      return
+    }
+    if (rotateDrag) {
+      const { x: ptX, y: ptY } = canvasToPoint(cx, cy, pageHeightPt, scale)
+      const cur = Math.atan2(ptY - rotateDrag.centerPtY, ptX - rotateDrag.centerPtX)
+      let rot = rotateDrag.origRotation + (cur - rotateDrag.startAngle)
+      // Snap to 15° increments when Shift is held.
+      if (e.shiftKey) {
+        const step = Math.PI / 12
+        rot = Math.round(rot / step) * step
+      }
+      // Normalize to (-π, π] so we don't accumulate huge spins.
+      rot = ((rot + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI
+      liveUpdateAnnotation(virtualIndex, rotateDrag.id, { rotation: rot })
       return
     }
     if (tool === 'select' && selected && selected.page === virtualIndex) {
       const sel = annotations.find((a) => a.id === selected.id)
-      let h: HandlePos | 'h1' | 'h2' | null = null
-      if (sel && !isNote(sel) && !isFreeText(sel)) {
+      let h: HandlePos | 'h1' | 'h2' | 'rot' | null = null
+      if (sel && !isNote(sel)) {
         if (isLine(sel)) {
           h = hitLineEndpoint(sel, cx, cy, pageHeightPt, scale)
         } else {
-          h = hitBoxHandle(sel, cx, cy, pageHeightPt, scale)
+          if (hitRotateHandle(sel, cx, cy, pageHeightPt, scale)) h = 'rot'
+          else if (!isFreeText(sel)) h = hitBoxHandle(sel, cx, cy, pageHeightPt, scale)
         }
       }
       if (h !== hoverHandle) setHoverHandle(h)
@@ -724,6 +886,7 @@ export function AnnotationLayer({
     }
     setMove(null)
     setResize(null)
+    setRotateDrag(null)
   }
 
   function hitBoxHandle(
@@ -742,14 +905,27 @@ export function AnnotationLayer({
     return null
   }
 
+  function hitRotateHandle(
+    a: RotatableBox,
+    cx: number,
+    cy: number,
+    pageH: number,
+    sc: number
+  ): boolean {
+    const { cx: hx, cy: hy } = rotateHandleCenter(a, pageH, sc)
+    return Math.hypot(cx - hx, cy - hy) <= ROTATE_HANDLE_HIT_PX
+  }
+
   const cursor =
     drawingTool || noteTool || freeTextTool
       ? 'crosshair'
-      : hoverHandle === 'h1' || hoverHandle === 'h2'
-        ? 'crosshair'
-        : hoverHandle
-          ? HANDLE_CURSORS[hoverHandle]
-          : 'default'
+      : hoverHandle === 'rot'
+        ? 'grab'
+        : hoverHandle === 'h1' || hoverHandle === 'h2'
+          ? 'crosshair'
+          : hoverHandle
+            ? HANDLE_CURSORS[hoverHandle as HandlePos]
+            : 'default'
   return (
     <>
       <canvas
