@@ -165,28 +165,44 @@ twice.
   color). Free-text tool (`F`) click-drops an empty box and a transparent
   HTML `<textarea>` overlay focuses immediately for typing; the editor
   reuses `beginLiveEdit` + `liveUpdateAnnotation` so an editing session
-  collapses into one undo entry. An empty body on blur drops the box.
-  Properties panel in the toolbar offers font (Helvetica / Times / Courier),
-  size (number input), and color (native `<input type="color">`, which opens
-  the platform GTK chooser on Linux). Save writes `/FreeText` with a `DA`
-  default-appearance string (`/Helv 14 Tf 0 0 0 rg` etc) carrying font +
-  size + RGB; `loadAnnotations` parses `/FreeText` back via the same DA
-  shape so reopens round-trip.
+  collapses into one undo entry. The placement click intentionally skips
+  `setPointerCapture` and defers the textarea `.focus()` to the next
+  animation frame — otherwise the trailing pointerup steals focus back,
+  the textarea blurs on an empty body, and the freshly-dropped box is
+  deleted before the first keystroke. While the freetext is selected the
+  canvas suppresses its own body draw — the DOM textarea is the source of
+  truth during editing, so canvas-glyph + DOM-glyph at slightly different
+  rasterizations don't produce a ghosted double-render. An empty body on
+  blur drops the box. Bbox height auto-grows with line count. Properties
+  panel in the toolbar offers font (Helvetica / Times / Courier), size
+  (number input), and color (native `<input type="color">`, which opens
+  the platform GTK chooser on Linux); changing size also resizes the bbox
+  so existing text isn't clipped. v1 punt: free-text boxes don't get the
+  8-handle resize chrome other bbox shapes have — they're move-only via
+  the select tool (resize via the size input). Save writes `/FreeText`
+  with a `DA` default-appearance string (`/Helv 14 Tf 0 0 0 rg` etc; tags
+  are the conventional Acrobat Standard-14 tags: `/Helv`, `/TiRo`,
+  `/Cour`) carrying font + size + RGB; `loadAnnotations` parses
+  `/FreeText` back via the same DA shape so reopens round-trip.
 - All annotations are selectable, moveable, deletable, undo/redo ✅
   (Ctrl+Z/Y). Select tool: click hit-tests in PDF coords, drag moves, drag a
   resize handle scales. Live drags use `beginLiveEdit` (one undo snapshot at
   drag start) + `liveUpdateAnnotation` (no undo push per frame), so one drag
   produces one undo entry rather than flooding the cap.
-- Tool palette in toolbar ✅ (Select / Rect / Oval / Arrow) + an inline
-  properties panel (`AnnotationProps`) showing stroke swatches, width
-  buttons, and a fill toggle (hidden for arrow/line). When an annotation is
-  selected the panel edits it; otherwise it edits `toolDefaults` (sticky
-  across documents), which the next drawn shape adopts. `Esc` returns to
-  select tool and clears any annotation
-  selection; `R` Rect, `O` Oval, `A` Arrow, `N` Note, `T` Text, `V` Select.
+- Tool palette in toolbar ✅ (Select / Rect / Oval / Arrow / Note /
+  Free-text) + an inline properties panel (`AnnotationProps`) that swaps
+  shape based on what's active: shapes show stroke swatches, width
+  buttons, and a fill toggle (hidden for arrow/line); free-text shows a
+  native color input, a font dropdown (Helvetica / Times / Courier), and
+  a size number input; notes have no panel — their popover is their UI.
+  When an annotation is selected the panel edits it; otherwise it edits
+  `toolDefaults` or `freeTextDefaults` (both sticky across documents),
+  which the next drawn shape adopts. `Esc` returns to select tool and
+  clears any annotation selection. Keyboard: `R` Rect, `O` Oval, `A`
+  Arrow, `N` Note, `F` Free-text, `T` Text-selection, `V` Select.
 - Save bakes shapes as standard PDF annotation dicts via pdf-lib's low-level
   `context.obj` API: `/Square` for rect, `/Circle` for oval, `/Line` for
-  arrow and line, `/Text` for sticky notes. Common fields: Subtype, Rect, C
+  arrow and line, `/Text` for sticky notes, `/FreeText` for free-text boxes. Common fields: Subtype, Rect, C
   (stroke 0..1), CA (opacity), F=4 (print), BS (border with W = strokeWidth),
   M (modification date), NM (our id), T (author when set). Bbox shapes add
   IC (interior fill) when set. Line shapes add L (the two endpoints) and LE
