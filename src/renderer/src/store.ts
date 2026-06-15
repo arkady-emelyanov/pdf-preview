@@ -21,7 +21,21 @@ import {
   type BoxStyle
 } from '../../shared/annotations'
 
-export type Tool = 'select' | 'rect' | 'oval' | 'arrow' | 'line'
+export type Tool = 'select' | 'rect' | 'oval' | 'arrow' | 'line' | 'text'
+
+export interface PageChars {
+  text: string
+  boxes: PageRect[]
+}
+
+export interface TextSelection {
+  /** Virtual page index — selection is single-page in v1. */
+  page: number
+  /** Inclusive char start. */
+  start: number
+  /** Inclusive char end. */
+  end: number
+}
 
 export type ZoomMode = 'fit-width' | 'fit-page' | 'actual' | 'custom'
 
@@ -64,6 +78,12 @@ interface State {
   toolDefaults: BoxStyle
   selectedAnnotation: { page: number; id: string } | null
 
+  // Text selection
+  textSelection: TextSelection | null
+  /** Cache keyed by `${sourceId}|${sourceIndex}` — virtual pages that share a
+   *  source page only fetch char data once. */
+  pageCharsCache: Map<string, PageChars>
+
   // View setters
   setDoc: (d: DocInfo | null) => void
   registerSource: (s: SourceInfo) => void
@@ -95,6 +115,11 @@ interface State {
   deleteSelection: () => void
   movePages: (indices: number[], target: number) => void
   insertPages: (inserts: VirtualPage[], target: number) => void
+
+  // Text selection
+  setTextSelection: (sel: TextSelection | null) => void
+  /** Returns char data for a virtual page, fetching + caching as needed. */
+  ensurePageChars: (page: number) => Promise<PageChars | null>
 
   // Annotations
   setTool: (t: Tool) => void
@@ -148,6 +173,8 @@ export const useStore = create<State>((set, get) => ({
   tool: 'select',
   toolDefaults: { ...defaultBoxStyle },
   selectedAnnotation: null,
+  textSelection: null,
+  pageCharsCache: new Map(),
 
   setDoc: (d) => {
     const pages = d ? identityPages(d.primary.sourceId, d.primary.pageCount) : []
@@ -166,7 +193,9 @@ export const useStore = create<State>((set, get) => ({
       searchCursor: -1,
       highlightsByPage: new Map(),
       tool: 'select',
-      selectedAnnotation: null
+      selectedAnnotation: null,
+      textSelection: null,
+      pageCharsCache: new Map()
     })
     window.pdf.setDirty(false)
   },
@@ -288,8 +317,29 @@ export const useStore = create<State>((set, get) => ({
   setTool: (t) =>
     set((st) => ({
       tool: t,
-      selectedAnnotation: t === 'select' ? st.selectedAnnotation : null
+      selectedAnnotation: t === 'select' ? st.selectedAnnotation : null,
+      // Switching tool always drops any active text selection.
+      textSelection: t === 'text' ? st.textSelection : null
     })),
+
+  setTextSelection: (sel) => set({ textSelection: sel }),
+
+  ensurePageChars: async (page) => {
+    const s = get()
+    if (page < 0 || page >= s.pages.length) return null
+    const vp = s.pages[page]
+    const key = `${vp.sourceId}|${vp.sourceIndex}`
+    const cached = s.pageCharsCache.get(key)
+    if (cached) return cached
+    const data = await window.pdf.getChars(vp.sourceId, vp.sourceIndex)
+    if (!data) return null
+    set((st) => {
+      const next = new Map(st.pageCharsCache)
+      next.set(key, data)
+      return { pageCharsCache: next }
+    })
+    return data
+  },
 
   setToolDefaults: (patch) =>
     set((st) => ({ toolDefaults: { ...st.toolDefaults, ...patch } })),

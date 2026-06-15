@@ -17,6 +17,7 @@ import {
   getAllPageSizes,
   renderPage,
   getPageText,
+  getPageChars,
   findMatchRects
 } from './pdfium'
 import { saveDoc } from './save'
@@ -106,6 +107,10 @@ app.whenReady().then(() => {
 
   ipcMain.handle('pdf:getText', async (_evt, id: string, pageIndex: number) => {
     return getPageText(id, pageIndex)
+  })
+
+  ipcMain.handle('pdf:getChars', async (_evt, id: string, pageIndex: number) => {
+    return getPageChars(id, pageIndex)
   })
 
   ipcMain.handle(

@@ -11,6 +11,7 @@ import {
   closeDoc,
   findMatchRects,
   getAllPageSizes,
+  getPageChars,
   getPageText,
   openDoc,
   renderPage
@@ -87,6 +88,29 @@ describe('pdfium integration', () => {
     expect(t1?.toLowerCase()).toContain('hello world')
     const t2 = await getPageText(id, 1)
     expect(t2?.toLowerCase()).toContain('second page')
+  })
+
+  it('getPageChars returns text + per-char boxes that line up', async () => {
+    const data = await getPageChars(id, 0)
+    expect(data).not.toBeNull()
+    const { text, boxes } = data!
+    expect(text.toLowerCase()).toContain('hello world')
+    expect(boxes.length).toBe(text.length)
+    // Find the 'H' and make sure it has a sane non-empty box on the page.
+    const hIdx = text.toLowerCase().indexOf('h')
+    expect(hIdx).toBeGreaterThanOrEqual(0)
+    const h = boxes[hIdx]
+    expect(h.w).toBeGreaterThan(0)
+    expect(h.h).toBeGreaterThan(0)
+    expect(h.x).toBeGreaterThanOrEqual(0)
+    expect(h.x + h.w).toBeLessThanOrEqual(300)
+    expect(h.y).toBeGreaterThanOrEqual(0)
+    expect(h.y + h.h).toBeLessThanOrEqual(200)
+    // Consecutive non-whitespace chars in 'Hello' should advance to the right.
+    const eIdx = hIdx + 1
+    if (boxes[eIdx].w > 0) {
+      expect(boxes[eIdx].x).toBeGreaterThan(boxes[hIdx].x)
+    }
   })
 
   it('findMatchRects locates the search term on the right page', async () => {

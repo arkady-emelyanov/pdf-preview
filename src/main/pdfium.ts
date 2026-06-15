@@ -240,6 +240,86 @@ export async function getPageText(id: string, pageIndex: number): Promise<string
   }
 }
 
+/**
+ * Per-char text + boxes for one page. `boxes[i]` is the page-coord rect (top-left
+ * origin, same convention as PageRect) for character `text.charAt(i)`. Whitespace
+ * and other glyphless chars get a zero-area box at the previous baseline.
+ */
+export async function getPageChars(
+  id: string,
+  pageIndex: number
+): Promise<{ text: string; boxes: PageRect[] } | null> {
+  const d = docs.get(id)
+  if (!d) return null
+  const mod = await getModule()
+  const raw = em(mod)
+  const pageHeightPts = d.pageSizes[pageIndex].height
+
+  const pagePtr = mod.FPDF_LoadPage(d.docPtr, pageIndex)
+  if (!pagePtr) return null
+  const textPagePtr = mod.FPDFText_LoadPage(pagePtr)
+  if (!textPagePtr) {
+    mod.FPDF_ClosePage(pagePtr)
+    return { text: '', boxes: [] }
+  }
+  try {
+    const charCount = mod.FPDFText_CountChars(textPagePtr)
+    if (charCount <= 0) return { text: '', boxes: [] }
+
+    let text = ''
+    const textBufBytes = (charCount + 1) * 2
+    const textBuf = raw.wasmExports.malloc(textBufBytes)
+    if (!textBuf) return { text: '', boxes: [] }
+    try {
+      const len = mod.FPDFText_GetText(textPagePtr, 0, charCount, textBuf)
+      if (len > 0) text = decodeUtf16LE(raw.HEAPU8, textBuf, (len - 1) * 2)
+    } finally {
+      raw.wasmExports.free(textBuf)
+    }
+
+    const boxes: PageRect[] = new Array(text.length)
+    const boxPtr = raw.wasmExports.malloc(32)
+    if (!boxPtr) return { text, boxes: [] }
+    try {
+      let lastBox: PageRect = { x: 0, y: 0, w: 0, h: 0 }
+      for (let i = 0; i < text.length; i++) {
+        mod.FPDFText_GetCharBox(
+          textPagePtr,
+          i,
+          boxPtr,
+          boxPtr + 8,
+          boxPtr + 16,
+          boxPtr + 24
+        )
+        const left = raw.HEAPF64[boxPtr / 8]
+        const right = raw.HEAPF64[(boxPtr + 8) / 8]
+        const bottom = raw.HEAPF64[(boxPtr + 16) / 8]
+        const top = raw.HEAPF64[(boxPtr + 24) / 8]
+        if (right > left && top > bottom) {
+          const box: PageRect = {
+            x: left,
+            y: pageHeightPts - top,
+            w: right - left,
+            h: top - bottom
+          }
+          boxes[i] = box
+          lastBox = box
+        } else {
+          // Whitespace / glyphless: keep position so click-targeting still snaps
+          // into the right line, but no width.
+          boxes[i] = { x: lastBox.x + lastBox.w, y: lastBox.y, w: 0, h: lastBox.h }
+        }
+      }
+    } finally {
+      raw.wasmExports.free(boxPtr)
+    }
+    return { text, boxes }
+  } finally {
+    mod.FPDFText_ClosePage(textPagePtr)
+    mod.FPDF_ClosePage(pagePtr)
+  }
+}
+
 export async function findMatchRects(
   id: string,
   pageIndex: number,

@@ -80,6 +80,34 @@ export function useKeyboardShortcuts(): void {
         s.rotateSelection(90)
         return
       }
+      if (mod && e.key.toLowerCase() === 'c' && !inField && s.textSelection) {
+        const ts = s.textSelection
+        const vp = s.pages[ts.page]
+        if (vp) {
+          const cached = s.pageCharsCache.get(`${vp.sourceId}|${vp.sourceIndex}`)
+          if (cached) {
+            const lo = Math.min(ts.start, ts.end)
+            const hi = Math.max(ts.start, ts.end)
+            const slice = cached.text.slice(lo, hi + 1)
+            e.preventDefault()
+            try {
+              await navigator.clipboard.writeText(slice)
+            } catch {
+              // Clipboard API can fail in some Linux/Wayland contexts; fall back
+              // to a hidden textarea + execCommand.
+              const ta = document.createElement('textarea')
+              ta.value = slice
+              ta.style.position = 'fixed'
+              ta.style.left = '-9999px'
+              document.body.appendChild(ta)
+              ta.select()
+              document.execCommand('copy')
+              document.body.removeChild(ta)
+            }
+          }
+        }
+        return
+      }
 
       if (inField) return
 
@@ -112,6 +140,11 @@ export function useKeyboardShortcuts(): void {
         s.setTool('select')
         return
       }
+      if (e.key.toLowerCase() === 't' && !mod) {
+        e.preventDefault()
+        s.setTool('text')
+        return
+      }
       if (e.key === 'ArrowDown' || e.key === 'PageDown' || e.key === ' ') {
         e.preventDefault()
         s.requestJump(Math.min(s.pages.length - 1, s.currentPage + 1))
@@ -128,6 +161,7 @@ export function useKeyboardShortcuts(): void {
         if (s.searchOpen) s.closeSearch()
         if (s.tool !== 'select') s.setTool('select')
         if (s.selectedAnnotation) s.setSelectedAnnotation(null)
+        if (s.textSelection) s.setTextSelection(null)
         s.clearSelection()
       }
     }

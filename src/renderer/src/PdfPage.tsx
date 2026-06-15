@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { PageRect } from '../../shared/ipc'
 import { AnnotationLayer } from './AnnotationLayer'
+import { TextSelectionLayer } from './TextSelectionLayer'
 
 interface Props {
   sourceId: string
@@ -80,6 +81,14 @@ export function PdfPage({
       )}
       {rotation === 0 && (
         <AnnotationLayer
+          virtualIndex={virtualIndex}
+          pageWidthPt={pageWidthPt}
+          pageHeightPt={pageHeightPt}
+          scale={scale}
+        />
+      )}
+      {rotation === 0 && (
+        <TextSelectionLayer
           virtualIndex={virtualIndex}
           pageWidthPt={pageWidthPt}
           pageHeightPt={pageHeightPt}

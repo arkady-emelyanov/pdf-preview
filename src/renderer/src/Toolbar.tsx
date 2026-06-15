@@ -218,6 +218,13 @@ export function Toolbar(): JSX.Element {
           >
             ↗
           </button>
+          <button
+            onClick={() => setTool('text')}
+            aria-pressed={tool === 'text'}
+            title="Select text (T)"
+          >
+            𝐓
+          </button>
           <AnnotationProps />
           <div className="divider" />
           <button onClick={doSave} disabled={!dirty || busy} title="Save (Ctrl+S)">

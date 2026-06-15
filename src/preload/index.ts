@@ -21,6 +21,11 @@ const api = {
     ipcRenderer.invoke('pdf:renderPage', sourceId, pageIndex, scale, rotation),
   getText: (sourceId: string, pageIndex: number): Promise<string | null> =>
     ipcRenderer.invoke('pdf:getText', sourceId, pageIndex),
+  getChars: (
+    sourceId: string,
+    pageIndex: number
+  ): Promise<{ text: string; boxes: PageRect[] } | null> =>
+    ipcRenderer.invoke('pdf:getChars', sourceId, pageIndex),
   findMatchRects: (
     sourceId: string,
     pageIndex: number,

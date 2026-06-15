@@ -160,6 +160,14 @@ html, body, #root {
 .annotation-layer {
   z-index: 2;
 }
+.text-select-layer {
+  z-index: 3;
+}
+.text-select-rect {
+  background: rgba(80, 140, 230, 0.32);
+  mix-blend-mode: multiply;
+  pointer-events: none;
+}
 .toolbar button[aria-pressed='true'] {
   background: #345;
   color: #cef;
