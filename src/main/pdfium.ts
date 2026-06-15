@@ -149,7 +149,7 @@ export async function openDoc(id: string, bytes: Uint8Array): Promise<number> {
     mod.FPDF_ClosePage(pagePtr)
   }
 
-  const form = initFormState(mod, docPtr)
+  const form = initFormState(mod, docPtr, pageCount)
   const baseline = form.hasForm
     ? new Map(readFieldValues(mod, form, pageCount).map((f) => [f.name, f.value]))
     : null

@@ -70,7 +70,11 @@ function em(mod: WrappedPdfiumModule): any {
 /** Inspect the doc, build a form-fill env if there's an AcroForm. XFA docs
  *  still get a state record so callers can render via FFLDraw, but we mark
  *  `isXFA` so the renderer can disable input + show the banner. */
-export function initFormState(mod: WrappedPdfiumModule, docPtr: number): FormState {
+export function initFormState(
+  mod: WrappedPdfiumModule,
+  docPtr: number,
+  pageCount: number
+): FormState {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const m = mod as any
   const formType = m.FPDF_GetFormType(docPtr) as number
