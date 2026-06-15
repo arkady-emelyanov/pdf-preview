@@ -183,11 +183,19 @@ export async function computeFormDirty(id: string): Promise<boolean> {
   const mod = await getModule()
   const live = readFocusedFieldLive(mod, d.form, (pi) => d.pageCache.get(pi) ?? 0)
   const current = readFieldValues(mod, d.form, d.pageCount)
-  if (current.length !== d.formBaseline.size) return true
+  if (current.length !== d.formBaseline.size) {
+    console.log(`[forms] dirty: count mismatch current=${current.length} baseline=${d.formBaseline.size}`)
+    return true
+  }
   for (const f of current) {
     const value = live && live.name === f.name ? live.value : f.value
     const orig = d.formBaseline.get(f.name)
-    if (orig === undefined || orig !== value) return true
+    if (orig === undefined || orig !== value) {
+      console.log(
+        `[forms] dirty: ${f.name} baseline=${JSON.stringify(orig)} value=${JSON.stringify(value)} (live=${live?.name === f.name ? 'yes' : 'no'})`
+      )
+      return true
+    }
   }
   return false
 }
