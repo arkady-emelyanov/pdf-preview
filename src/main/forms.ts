@@ -72,7 +72,13 @@ export function initFormState(mod: WrappedPdfiumModule, docPtr: number): FormSta
   const m = mod as any
   const formType = m.FPDF_GetFormType(docPtr) as number
   const hasForm = formType !== FORMTYPE_NONE
-  const isXFA = formType === FORMTYPE_XFA_FULL || formType === FORMTYPE_XFA_FOREGROUND
+  // Only "XFA Full" (type 2) means there's no AcroForm fallback — the file
+  // is pure XFA and we genuinely can't edit it. "XFA Foreground" (type 3)
+  // is the common hybrid pattern used by USCIS / IRS / most gov forms: an
+  // XFA payload sitting on top of a perfectly fillable AcroForm. Chrome,
+  // Firefox, Preview, etc. just ignore the XFA and drive the AcroForm —
+  // we do the same.
+  const isXFA = formType === FORMTYPE_XFA_FULL
   if (!hasForm) {
     return { docPtr, formInfoPtr: 0, formHandle: 0, hasForm: false, isXFA: false }
   }
