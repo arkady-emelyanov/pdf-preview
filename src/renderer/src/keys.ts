@@ -161,6 +161,11 @@ export function useKeyboardShortcuts(): void {
         s.setTool('note')
         return
       }
+      if (e.key.toLowerCase() === 'f' && !mod) {
+        e.preventDefault()
+        s.setTool('freetext')
+        return
+      }
       if (e.key === 'ArrowDown' || e.key === 'PageDown' || e.key === ' ') {
         e.preventDefault()
         s.requestJump(Math.min(s.pages.length - 1, s.currentPage + 1))

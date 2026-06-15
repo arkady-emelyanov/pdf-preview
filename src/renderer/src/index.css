@@ -191,6 +191,21 @@ html, body, #root {
   border-color: #3aa0ff;
 }
 
+.freetext-editor {
+  background: transparent;
+  border: 1px dashed #3aa0ff;
+  padding: 0;
+  margin: 0;
+  resize: none;
+  overflow: hidden;
+  outline: none;
+  box-sizing: border-box;
+  caret-color: #3aa0ff;
+}
+.freetext-editor::placeholder {
+  color: rgba(0, 0, 0, 0.35);
+}
+
 .ctx-menu {
   position: fixed;
   z-index: 1000;
@@ -242,6 +257,15 @@ html, body, #root {
 .annot-props .swatch[aria-pressed='true'] {
   outline: 2px solid #cef;
   outline-offset: 1px;
+}
+.annot-props .freetext-color {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid #444;
+  border-radius: 3px;
+  cursor: pointer;
 }
 .highlight {
   position: absolute;

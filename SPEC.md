@@ -161,7 +161,17 @@ twice.
   notes don't get resize handles. Save writes `/Text` with `/Contents`,
   `/Name /Note`, `/Open false`, `/C`. Author from `git config user.name` /
   OS user is still planned.
-- **Text boxes**: planned. Free-floating text, font (3–4 bundled), size, color.
+- **Text boxes** ✅: `FreeTextAnnotation` (anchor bbox + body + font + size +
+  color). Free-text tool (`F`) click-drops an empty box and a transparent
+  HTML `<textarea>` overlay focuses immediately for typing; the editor
+  reuses `beginLiveEdit` + `liveUpdateAnnotation` so an editing session
+  collapses into one undo entry. An empty body on blur drops the box.
+  Properties panel in the toolbar offers font (Helvetica / Times / Courier),
+  size (number input), and color (native `<input type="color">`, which opens
+  the platform GTK chooser on Linux). Save writes `/FreeText` with a `DA`
+  default-appearance string (`/Helv 14 Tf 0 0 0 rg` etc) carrying font +
+  size + RGB; `loadAnnotations` parses `/FreeText` back via the same DA
+  shape so reopens round-trip.
 - All annotations are selectable, moveable, deletable, undo/redo ✅
   (Ctrl+Z/Y). Select tool: click hit-tests in PDF coords, drag moves, drag a
   resize handle scales. Live drags use `beginLiveEdit` (one undo snapshot at
@@ -388,7 +398,7 @@ window.pdf = {
 1. **M0 — Skeleton** ✅: Electron + Vite + React boilerplate, 1-window-per-doc with blank-window reuse, PDFium-WASM rendering to `<canvas>`, custom toolbar (no browser chrome), AppImage builds, drag-drop / double-click open.
 2. **M1 — Viewport + nav** ✅: virtualized rendering, thumbnail rail, page sync, zoom modes, Ctrl+F search with bbox highlights, full keyboard nav, system font mapper.
 3. **M2 — Page ops** ✅: rotate ✅, delete ✅, drag-reorder ✅, multi-select ✅, undo/redo with snapshot stacks ✅, dirty indicator ✅, Save / Save As / Export Selection As ✅ via pdf-lib bake, Insert-from-other-PDF ✅, Merge ✅ (both via multi-source `VirtualPage {sourceId, ...}` and a secondary-source registry in main). Sidecar crash recovery: deferred to M6.
-4. **M3 — Annotations** ◐: overlay canvas ✅, rectangle ✅ + oval ✅ + arrow ✅ + line ✅ (draw + select + move + resize/endpoint-drag ✅ + delete + undo/redo + `/Square` / `/Circle` / `/Line` write-back), inline style picker (color / width / fill) ✅, sticky notes ✅ (`/Text` write-back, popover editor). Remaining: rotate handle, free-text boxes.
+4. **M3 — Annotations** ◐: overlay canvas ✅, rectangle ✅ + oval ✅ + arrow ✅ + line ✅ (draw + select + move + resize/endpoint-drag ✅ + delete + undo/redo + `/Square` / `/Circle` / `/Line` write-back), inline style picker (color / width / fill) ✅, sticky notes ✅ (`/Text` write-back, popover editor), free-text boxes ✅ (`/FreeText` write-back with DA, in-place textarea editor, font/size/color props). Remaining: rotate handle.
 5. **M4 — Forms**: AcroForm read-back on save; XFA fallback path with banner.
 6. **M5 — Print**: CUPS pipeline, custom dialog, status.
 7. **M6 — Polish + AppImage release**: real icon, MIME registration, recent files, sidecar crash recovery, CI release pipeline.

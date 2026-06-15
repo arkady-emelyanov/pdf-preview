@@ -242,6 +242,14 @@ export function Toolbar(): JSX.Element {
           >
             🗒
           </button>
+          <button
+            onClick={() => setTool('freetext')}
+            aria-pressed={tool === 'freetext'}
+            title="Free-text box (F)"
+            style={{ fontFamily: 'serif', fontWeight: 700 }}
+          >
+            T
+          </button>
           <AnnotationProps />
         </>
       )}

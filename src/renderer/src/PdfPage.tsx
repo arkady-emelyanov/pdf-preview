@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { PageRect } from '../../shared/ipc'
 import { AnnotationLayer } from './AnnotationLayer'
 import { NotePopover } from './NotePopover'
+import { FreeTextEditor } from './FreeTextEditor'
 import { TextSelectionLayer } from './TextSelectionLayer'
 
 interface Props {
@@ -98,6 +99,13 @@ export function PdfPage({
       )}
       {rotation === 0 && (
         <NotePopover
+          virtualIndex={virtualIndex}
+          pageHeightPt={pageHeightPt}
+          scale={scale}
+        />
+      )}
+      {rotation === 0 && (
+        <FreeTextEditor
           virtualIndex={virtualIndex}
           pageHeightPt={pageHeightPt}
           scale={scale}

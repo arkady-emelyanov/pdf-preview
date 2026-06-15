@@ -13,19 +13,32 @@ import {
   type VirtualPage
 } from '../../shared/edit'
 import {
+  FREETEXT_DEFAULT_COLOR,
+  FREETEXT_DEFAULT_FONT,
+  FREETEXT_DEFAULT_SIZE,
   NOTE_SIZE_PT,
   addAnnotation as addAnnFn,
   defaultBoxStyle,
   deleteAnnotation as delAnnFn,
+  isFreeText,
   isLine,
   isNote,
   newId,
   updateAnnotation as updAnnFn,
   type Annotation,
-  type BoxStyle
+  type BoxStyle,
+  type FreeTextFont
 } from '../../shared/annotations'
 
-export type Tool = 'select' | 'rect' | 'oval' | 'arrow' | 'line' | 'text' | 'note'
+/** Sticky style applied to the next free-text drawn (and shown in the props
+ *  panel when no annotation is selected). */
+export interface FreeTextDefaults {
+  font: FreeTextFont
+  fontSize: number
+  color: string
+}
+
+export type Tool = 'select' | 'rect' | 'oval' | 'arrow' | 'line' | 'text' | 'note' | 'freetext'
 
 export interface PageChars {
   text: string
@@ -80,6 +93,7 @@ interface State {
   tool: Tool
   /** Style applied to the next shape drawn (and shown in the props panel when nothing's selected). */
   toolDefaults: BoxStyle
+  freeTextDefaults: FreeTextDefaults
   selectedAnnotation: { page: number; id: string } | null
 
   // Annotation clipboard (in-app — not the system clipboard).
@@ -131,6 +145,7 @@ interface State {
   // Annotations
   setTool: (t: Tool) => void
   setToolDefaults: (patch: Partial<BoxStyle>) => void
+  setFreeTextDefaults: (patch: Partial<FreeTextDefaults>) => void
   addAnnotation: (page: number, a: Annotation) => void
   updateAnnotation: (page: number, id: string, patch: Partial<Annotation>) => void
   deleteAnnotation: (page: number, id: string) => void
@@ -187,6 +202,11 @@ export const useStore = create<State>((set, get) => ({
 
   tool: 'select',
   toolDefaults: { ...defaultBoxStyle },
+  freeTextDefaults: {
+    font: FREETEXT_DEFAULT_FONT,
+    fontSize: FREETEXT_DEFAULT_SIZE,
+    color: FREETEXT_DEFAULT_COLOR
+  },
   selectedAnnotation: null,
   clipboard: null,
   textSelection: null,
@@ -362,6 +382,9 @@ export const useStore = create<State>((set, get) => ({
   setToolDefaults: (patch) =>
     set((st) => ({ toolDefaults: { ...st.toolDefaults, ...patch } })),
 
+  setFreeTextDefaults: (patch) =>
+    set((st) => ({ freeTextDefaults: { ...st.freeTextDefaults, ...patch } })),
+
   addAnnotation: (page, a) => {
     const s = get()
     if (page < 0 || page >= s.pages.length) return
@@ -446,6 +469,15 @@ export const useStore = create<State>((set, get) => ({
         id: newId(),
         x: ptX - NOTE_SIZE_PT / 2,
         y: ptY - NOTE_SIZE_PT / 2,
+        created: now,
+        modified: now
+      }
+    } else if (isFreeText(src)) {
+      copy = {
+        ...src,
+        id: newId(),
+        x: ptX - src.w / 2,
+        y: ptY - src.h / 2,
         created: now,
         modified: now
       }

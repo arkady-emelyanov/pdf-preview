@@ -16,13 +16,46 @@ import {
   PDFString
 } from 'pdf-lib'
 import {
+  FREETEXT_DEFAULT_COLOR,
+  FREETEXT_DEFAULT_FONT,
+  FREETEXT_DEFAULT_SIZE,
   OWN_NM_PREFIX,
   type Annotation,
+  type FreeTextAnnotation,
+  type FreeTextFont,
   type LineAnnotation,
   type NoteAnnotation,
   type OvalAnnotation,
   type RectAnnotation
 } from '../shared/annotations'
+
+/** Parse a /FreeText /DA string of the conventional form
+ *   `/<FontTag> <size> Tf  r g b rg`
+ *  back into our font / size / hex-color triple. Falls back to defaults for
+ *  any tokens we can't recover. */
+function parseDA(da: string): { font: FreeTextFont; size: number; color: string } {
+  let font: FreeTextFont = FREETEXT_DEFAULT_FONT
+  let size = FREETEXT_DEFAULT_SIZE
+  let color = FREETEXT_DEFAULT_COLOR
+  const tfMatch = da.match(/\/(\w+)\s+([0-9.]+)\s+Tf/)
+  if (tfMatch) {
+    const tag = tfMatch[1].toLowerCase()
+    if (tag.startsWith('tiro') || tag.startsWith('times')) font = 'Times'
+    else if (tag.startsWith('cour')) font = 'Courier'
+    else font = 'Helvetica'
+    const n = Number(tfMatch[2])
+    if (Number.isFinite(n) && n > 0) size = n
+  }
+  const rgMatch = da.match(/([0-9.]+)\s+([0-9.]+)\s+([0-9.]+)\s+rg/)
+  if (rgMatch) {
+    const r = Math.round(Math.max(0, Math.min(1, Number(rgMatch[1]))) * 255)
+    const g = Math.round(Math.max(0, Math.min(1, Number(rgMatch[2]))) * 255)
+    const b = Math.round(Math.max(0, Math.min(1, Number(rgMatch[3]))) * 255)
+    const hex = (n: number): string => n.toString(16).padStart(2, '0')
+    color = `#${hex(r)}${hex(g)}${hex(b)}`
+  }
+  return { font, size, color }
+}
 
 function decodeText(v: unknown): string {
   if (v instanceof PDFHexString) return v.decodeText()
@@ -145,6 +178,32 @@ function parseAnnotation(dict: PDFDict): Annotation | null {
       y2: readNumber(L.lookup(3)),
       stroke,
       strokeWidth,
+      opacity,
+      author,
+      created: now,
+      modified: now
+    }
+    return a
+  }
+  if (subtype === '/FreeText') {
+    const x1 = readNumber(rectNode.lookup(0))
+    const y1 = readNumber(rectNode.lookup(1))
+    const x2 = readNumber(rectNode.lookup(2))
+    const y2 = readNumber(rectNode.lookup(3))
+    const body = decodeText(dict.lookup(PDFName.of('Contents')))
+    const da = decodeText(dict.lookup(PDFName.of('DA')))
+    const parsed = parseDA(da)
+    const a: FreeTextAnnotation = {
+      id: nm,
+      kind: 'freetext',
+      x: Math.min(x1, x2),
+      y: Math.min(y1, y2),
+      w: Math.abs(x2 - x1),
+      h: Math.abs(y2 - y1),
+      body,
+      font: parsed.font,
+      fontSize: parsed.size,
+      color: parsed.color,
       opacity,
       author,
       created: now,

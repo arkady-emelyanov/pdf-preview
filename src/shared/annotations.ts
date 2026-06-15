@@ -8,7 +8,19 @@
  * add their own envelopes later but follow the same id/style/timestamp pattern.
  */
 
-export type AnnotationKind = 'rect' | 'oval' | 'arrow' | 'line' | 'note'
+export type AnnotationKind = 'rect' | 'oval' | 'arrow' | 'line' | 'note' | 'freetext'
+
+/** PDF standard families we expose in the free-text font picker. Each maps
+ *  to a font tag in the /DA string we write (and parse back) on save / load. */
+export type FreeTextFont = 'Helvetica' | 'Times' | 'Courier'
+export const FREETEXT_FONTS: FreeTextFont[] = ['Helvetica', 'Times', 'Courier']
+export const FREETEXT_DEFAULT_FONT: FreeTextFont = 'Helvetica'
+export const FREETEXT_DEFAULT_SIZE = 14
+export const FREETEXT_DEFAULT_COLOR = '#1a1a1a'
+export const FREETEXT_DEFAULT_W = 200
+export const FREETEXT_LINE_HEIGHT = 1.35
+/** Minimum bbox height so an empty free-text still gets a hit-target. */
+export const FREETEXT_MIN_H = 18
 
 /** Visual size of a sticky-note icon, in PDF points. Hit-test and save Rect
  *  also use this so the icon size in the saved PDF matches what we drew. */
@@ -81,7 +93,36 @@ export interface NoteAnnotation {
   modified: number
 }
 
-export type Annotation = RectAnnotation | OvalAnnotation | LineAnnotation | NoteAnnotation
+/**
+ * Free-text annotation: a free-floating text label. Bottom-left of the bbox
+ * is (x, y) in PDF page points; the bbox `(w, h)` is what we draw on the
+ * overlay and bake into the saved /Rect. The body string can hold multiple
+ * lines (`\n` separated).
+ */
+export interface FreeTextAnnotation {
+  id: string
+  kind: 'freetext'
+  x: number
+  y: number
+  w: number
+  h: number
+  body: string
+  font: FreeTextFont
+  fontSize: number
+  /** CSS hex (`#rrggbb`). */
+  color: string
+  opacity: number
+  author?: string
+  created: number
+  modified: number
+}
+
+export type Annotation =
+  | RectAnnotation
+  | OvalAnnotation
+  | LineAnnotation
+  | NoteAnnotation
+  | FreeTextAnnotation
 
 export interface BoxStyle {
   stroke: string
@@ -149,6 +190,47 @@ export function makeNote(
     y: init.y,
     body: init.body ?? '',
     color: init.color ?? '#ffe066',
+    author: init.author,
+    created: now,
+    modified: now
+  }
+}
+
+export function freeTextHeight(body: string, fontSize: number): number {
+  const lines = Math.max(1, body.split('\n').length)
+  return Math.max(FREETEXT_MIN_H, lines * fontSize * FREETEXT_LINE_HEIGHT)
+}
+
+export function makeFreeText(init: {
+  x: number
+  y: number
+  w?: number
+  h?: number
+  body?: string
+  font?: FreeTextFont
+  fontSize?: number
+  color?: string
+  opacity?: number
+  author?: string
+}): FreeTextAnnotation {
+  const now = Date.now()
+  const font = init.font ?? FREETEXT_DEFAULT_FONT
+  const fontSize = init.fontSize ?? FREETEXT_DEFAULT_SIZE
+  const body = init.body ?? ''
+  const w = init.w ?? FREETEXT_DEFAULT_W
+  const h = init.h ?? freeTextHeight(body, fontSize)
+  return {
+    id: newId(),
+    kind: 'freetext',
+    x: init.x,
+    y: init.y,
+    w,
+    h,
+    body,
+    font,
+    fontSize,
+    color: init.color ?? FREETEXT_DEFAULT_COLOR,
+    opacity: init.opacity ?? 1,
     author: init.author,
     created: now,
     modified: now
@@ -257,6 +339,25 @@ export function isNote(a: Annotation): a is NoteAnnotation {
   return a.kind === 'note'
 }
 
+export function isFreeText(a: Annotation): a is FreeTextAnnotation {
+  return a.kind === 'freetext'
+}
+
+export function hitTestFreeText(
+  a: FreeTextAnnotation,
+  ptX: number,
+  ptY: number,
+  tolerancePt = 4
+): boolean {
+  const t = tolerancePt
+  return (
+    ptX >= a.x - t &&
+    ptX <= a.x + a.w + t &&
+    ptY >= a.y - t &&
+    ptY <= a.y + a.h + t
+  )
+}
+
 /** Hit-test a note via its icon's PDF-point bbox at (x, y, NOTE_SIZE, NOTE_SIZE). */
 export function hitTestNote(
   a: NoteAnnotation,
@@ -293,7 +394,16 @@ export function annotationsEqual(
       if (x.x !== y.x || x.y !== y.y) return false
       if (x.body !== y.body) return false
       if (x.color !== y.color) return false
-    } else if (!isLine(x) && !isLine(y) && !isNote(x) && !isNote(y)) {
+    } else if (isFreeText(x) && isFreeText(y)) {
+      if (x.x !== y.x || x.y !== y.y || x.w !== y.w || x.h !== y.h) return false
+      if (x.body !== y.body) return false
+      if (x.font !== y.font) return false
+      if (x.fontSize !== y.fontSize) return false
+      if (x.color !== y.color) return false
+      if (x.opacity !== y.opacity) return false
+    } else if (
+      !isLine(x) && !isLine(y) && !isNote(x) && !isNote(y) && !isFreeText(x) && !isFreeText(y)
+    ) {
       if (x.stroke !== y.stroke || x.strokeWidth !== y.strokeWidth) return false
       if (x.opacity !== y.opacity) return false
       if (x.x !== y.x || x.y !== y.y || x.w !== y.w || x.h !== y.h) return false
@@ -327,7 +437,7 @@ export function canvasToPoint(
 
 /** Top-left rect in canvas px, ready to draw on the overlay. */
 export function rectToCanvas(
-  a: BoxAnnotationBase,
+  a: { x: number; y: number; w: number; h: number },
   pageHeightPt: number,
   scale: number
 ): { x: number; y: number; w: number; h: number } {
@@ -432,6 +542,7 @@ export function hitTestOval(
 export function hitTest(a: Annotation, ptX: number, ptY: number, tolerancePt = 4): boolean {
   if (isLine(a)) return hitTestLine(a, ptX, ptY, tolerancePt + 2)
   if (isNote(a)) return hitTestNote(a, ptX, ptY, tolerancePt)
+  if (isFreeText(a)) return hitTestFreeText(a, ptX, ptY, tolerancePt)
   if (a.kind === 'oval') return hitTestOval(a, ptX, ptY, tolerancePt)
   return hitTestRect(a, ptX, ptY, tolerancePt)
 }

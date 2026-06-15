@@ -2,15 +2,19 @@ import { useEffect, useRef, useState } from 'react'
 import { useStore } from './store'
 import { ContextMenu, type ContextMenuItem } from './ContextMenu'
 import {
+  FREETEXT_LINE_HEIGHT,
   HANDLES,
   NOTE_SIZE_PT,
   arrowHeadSizePt,
   canvasToPoint,
+  freeTextHeight,
   handleCenter,
   hitTest,
+  isFreeText,
   isLine,
   isNote,
   makeBox,
+  makeFreeText,
   makeLine,
   makeNote,
   pointToCanvas,
@@ -18,6 +22,7 @@ import {
   resizeRect,
   type Annotation,
   type BoxAnnotationBase,
+  type FreeTextAnnotation,
   type HandlePos,
   type LineAnnotation,
   type NoteAnnotation
@@ -119,6 +124,42 @@ function drawBox(
     ctx.strokeRect(r.x, r.y, r.w, r.h)
   }
   ctx.globalAlpha = 1
+}
+
+function cssFontFamily(font: FreeTextAnnotation['font']): string {
+  switch (font) {
+    case 'Times':
+      return '"Liberation Serif", "Tinos", "Times New Roman", Times, serif'
+    case 'Courier':
+      return '"Liberation Mono", "Cousine", "Courier New", Courier, monospace'
+    default:
+      return '"Liberation Sans", "Arimo", "Helvetica", Arial, sans-serif'
+  }
+}
+
+function drawFreeText(
+  ctx: CanvasRenderingContext2D,
+  a: FreeTextAnnotation,
+  pageHeightPt: number,
+  scale: number
+): void {
+  const r = rectToCanvas(a, pageHeightPt, scale)
+  ctx.save()
+  ctx.beginPath()
+  ctx.rect(r.x, r.y, r.w, r.h)
+  ctx.clip()
+  ctx.globalAlpha = a.opacity
+  const sizePx = a.fontSize * scale
+  ctx.font = `${sizePx}px ${cssFontFamily(a.font)}`
+  ctx.fillStyle = a.color
+  ctx.textBaseline = 'top'
+  const lineHpx = sizePx * FREETEXT_LINE_HEIGHT
+  const lines = a.body.length === 0 ? [''] : a.body.split('\n')
+  for (let i = 0; i < lines.length; i++) {
+    ctx.fillText(lines[i], r.x, r.y + i * lineHpx)
+  }
+  ctx.globalAlpha = 1
+  ctx.restore()
 }
 
 function drawNote(
@@ -266,6 +307,7 @@ export function AnnotationLayer({
 }: Props): JSX.Element {
   const tool = useStore((s) => s.tool)
   const toolDefaults = useStore((s) => s.toolDefaults)
+  const freeTextDefaults = useStore((s) => s.freeTextDefaults)
   const page = useStore((s) => s.pages[virtualIndex])
   const selected = useStore((s) => s.selectedAnnotation)
   const setSelected = useStore((s) => s.setSelectedAnnotation)
@@ -290,6 +332,7 @@ export function AnnotationLayer({
 
   const drawingTool = tool === 'rect' || tool === 'oval' || tool === 'arrow'
   const noteTool = tool === 'note'
+  const freeTextTool = tool === 'freetext'
   const cssW = pageWidthPt * scale
   const cssH = pageHeightPt * scale
 
@@ -305,10 +348,17 @@ export function AnnotationLayer({
     ctx.clearRect(0, 0, cssW, cssH)
 
     for (const a of annotations) {
+      const isSelectedHere =
+        !!selected && selected.page === virtualIndex && selected.id === a.id
       if (isLine(a)) drawArrow(ctx, a, pageHeightPt, scale)
       else if (isNote(a)) drawNote(ctx, a, pageHeightPt, scale)
-      else drawBox(ctx, a, pageHeightPt, scale)
-      if (selected && selected.page === virtualIndex && selected.id === a.id) {
+      else if (isFreeText(a)) {
+        // The textarea editor overlays the selected free-text. Drawing the
+        // body here too would produce a doubled-text ghost as the user types
+        // (canvas glyphs + DOM glyphs at slightly different rasterizations).
+        if (!isSelectedHere) drawFreeText(ctx, a, pageHeightPt, scale)
+      } else drawBox(ctx, a, pageHeightPt, scale)
+      if (isSelectedHere) {
         drawSelectionChrome(ctx, a, pageHeightPt, scale)
       }
     }
@@ -384,6 +434,15 @@ export function AnnotationLayer({
       ctx.setLineDash([])
       return
     }
+    if (isFreeText(a)) {
+      const r = rectToCanvas(a, pageH, sc)
+      ctx.strokeStyle = '#3aa0ff'
+      ctx.setLineDash([4, 3])
+      ctx.lineWidth = 1
+      ctx.strokeRect(r.x - 2, r.y - 2, r.w + 4, r.h + 4)
+      ctx.setLineDash([])
+      return
+    }
     const r = rectToCanvas(a, pageH, sc)
     ctx.strokeStyle = '#3aa0ff'
     ctx.setLineDash([4, 3])
@@ -452,6 +511,26 @@ export function AnnotationLayer({
   const onPointerDown = (e: React.PointerEvent): void => {
     if (e.button !== 0) return
     const { cx, cy } = localCoords(e)
+
+    if (freeTextTool) {
+      // Click drops an empty free-text whose bbox top-left sits at the cursor.
+      // Don't capture the pointer — the editor overlay needs to receive focus
+      // immediately, and a captured canvas would keep eating pointer events
+      // until pointerup, dropping the focus we just gave the textarea.
+      e.preventDefault()
+      const { x: ptX, y: ptY } = canvasToPoint(cx, cy, pageHeightPt, scale)
+      const h0 = freeTextHeight('', freeTextDefaults.fontSize)
+      const ft = makeFreeText({
+        x: ptX,
+        y: ptY - h0,
+        font: freeTextDefaults.font,
+        fontSize: freeTextDefaults.fontSize,
+        color: freeTextDefaults.color
+      })
+      addAnnotation(virtualIndex, ft)
+      return
+    }
+
     ;(e.currentTarget as HTMLCanvasElement).setPointerCapture(e.pointerId)
 
     if (drawingTool) {
@@ -472,7 +551,7 @@ export function AnnotationLayer({
     // Notes don't get handles — they're point-anchored, only drag-to-move.
     if (selected && selected.page === virtualIndex) {
       const sel = annotations.find((a) => a.id === selected.id)
-      if (sel && !isNote(sel)) {
+      if (sel && !isNote(sel) && !isFreeText(sel)) {
         if (isLine(sel)) {
           const end = hitLineEndpoint(sel, cx, cy, pageHeightPt, scale)
           if (end) {
@@ -590,7 +669,7 @@ export function AnnotationLayer({
     if (tool === 'select' && selected && selected.page === virtualIndex) {
       const sel = annotations.find((a) => a.id === selected.id)
       let h: HandlePos | 'h1' | 'h2' | null = null
-      if (sel && !isNote(sel)) {
+      if (sel && !isNote(sel) && !isFreeText(sel)) {
         if (isLine(sel)) {
           h = hitLineEndpoint(sel, cx, cy, pageHeightPt, scale)
         } else {
@@ -604,7 +683,8 @@ export function AnnotationLayer({
   }
 
   const onPointerUp = (e: React.PointerEvent): void => {
-    ;(e.currentTarget as HTMLCanvasElement).releasePointerCapture(e.pointerId)
+    const canvas = e.currentTarget as HTMLCanvasElement
+    if (canvas.hasPointerCapture(e.pointerId)) canvas.releasePointerCapture(e.pointerId)
     if (draw) {
       const dCss = Math.hypot(draw.curCx - draw.startCx, draw.curCy - draw.startCy)
       const wasDraw = draw
@@ -663,7 +743,7 @@ export function AnnotationLayer({
   }
 
   const cursor =
-    drawingTool || noteTool
+    drawingTool || noteTool || freeTextTool
       ? 'crosshair'
       : hoverHandle === 'h1' || hoverHandle === 'h2'
         ? 'crosshair'

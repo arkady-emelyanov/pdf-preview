@@ -15,7 +15,8 @@ import {
   OWN_NM_PREFIX,
   lineBBox,
   parseHexColor,
-  type Annotation
+  type Annotation,
+  type FreeTextFont
 } from '../shared/annotations'
 import { PDFBool, PDFDict } from 'pdf-lib'
 
@@ -167,6 +168,30 @@ function writeAnnotations(page: PDFPage, anns: Annotation[]): void {
         NM: PDFString.of(a.id)
       })
       if (!a.author) dict.delete(PDFName.of('T'))
+    } else if (a.kind === 'freetext') {
+      const rgb = parseHexColor(a.color) ?? [0, 0, 0]
+      const x1 = a.x
+      const y1 = a.y
+      const x2 = a.x + a.w
+      const y2 = a.y + a.h
+      // DA = default appearance: `/<fontTag> <size> Tf  r g b rg`. Acrobat /
+      // Preview / Okular all read this on open to pick the font + color when
+      // they regenerate the appearance stream.
+      const da = `/${fontTag(a.font)} ${a.fontSize} Tf ${rgb[0]} ${rgb[1]} ${rgb[2]} rg`
+      dict = ctx.obj({
+        Type: 'Annot',
+        Subtype: 'FreeText',
+        Rect: [x1, y1, x2, y2],
+        Contents: PDFHexString.fromText(a.body),
+        DA: PDFString.of(da),
+        Q: 0,
+        F: 4,
+        M: PDFString.of(toPdfDate(new Date(a.modified))),
+        T: a.author ? PDFHexString.fromText(a.author) : undefined,
+        NM: PDFString.of(a.id)
+      })
+      if (!a.author) dict.delete(PDFName.of('T'))
+      dict.set(PDFName.of('CA'), PDFNumber.of(a.opacity))
     } else if (a.kind === 'rect' || a.kind === 'oval') {
       const rgb = parseHexColor(a.stroke) ?? [0.8, 0.2, 0.2]
       const x1 = a.x
@@ -198,6 +223,20 @@ function writeAnnotations(page: PDFPage, anns: Annotation[]): void {
     arr.push(dict)
   }
   node.set(PDFName.of('Annots'), arr)
+}
+
+/** Map our font name to a PDF resource tag used in the /DA string. The
+ *  tags we pick are the conventional ones Acrobat uses for the same
+ *  Standard-14 families — viewers recognize them without needing a /DR. */
+function fontTag(font: FreeTextFont): string {
+  switch (font) {
+    case 'Times':
+      return 'TiRo'
+    case 'Courier':
+      return 'Cour'
+    default:
+      return 'Helv'
+  }
 }
 
 function toPdfDate(d: Date): string {
