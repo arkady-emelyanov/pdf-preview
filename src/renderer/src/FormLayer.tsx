@@ -70,7 +70,11 @@ export function FormLayer({
         if (e.button !== 0) return
         e.preventDefault()
         ;(e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId)
-        ;(e.currentTarget as HTMLDivElement).focus()
+        // preventScroll stops the browser from snap-scrolling a partially-
+        // visible FormLayer into full view when we focus it on click. The
+        // user's intent was to focus a specific widget, not re-frame the
+        // page; PDFium handles its own focus visibility inside the bitmap.
+        ;(e.currentTarget as HTMLDivElement).focus({ preventScroll: true })
         const { cx, cy } = localCoords(e)
         const { x, y } = canvasToPagePt(cx, cy)
         void window.pdf.formEvent(sourceId, sourceIndex, { kind: 'down', pageX: x, pageY: y })
