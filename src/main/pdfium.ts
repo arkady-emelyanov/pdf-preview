@@ -52,6 +52,13 @@ interface OpenDoc {
   pageCount: number
   pageSizes: PageSize[]
   form: FormState
+  /**
+   * Cached page handles. PDFium's form-fill state stores the focused widget's
+   * page pointer; if we load + close pages around every event, that pointer
+   * dangles and the next keystroke gets dropped. So once a page is touched we
+   * keep its handle until the doc closes.
+   */
+  pageCache: Map<number, number>
 }
 
 const docs = new Map<string, OpenDoc>()
@@ -135,12 +142,31 @@ export async function openDoc(id: string, bytes: Uint8Array): Promise<number> {
   }
 
   const form = initFormState(mod, docPtr)
-  docs.set(id, { docPtr, bytesPtr, pageCount, pageSizes, form })
+  docs.set(id, { docPtr, bytesPtr, pageCount, pageSizes, form, pageCache: new Map() })
   return pageCount
+}
+
+/** Load a page through the per-doc cache. Stays alive until the doc closes,
+ *  so PDFium's form-state keeps a stable handle across events. */
+function loadCachedPage(mod: WrappedPdfiumModule, d: OpenDoc, pageIndex: number): number {
+  const cached = d.pageCache.get(pageIndex)
+  if (cached) return cached
+  const pagePtr = mod.FPDF_LoadPage(d.docPtr, pageIndex)
+  if (!pagePtr) return 0
+  d.pageCache.set(pageIndex, pagePtr)
+  if (d.form.hasForm) notifyPageLoaded(mod, d.form, pagePtr)
+  return pagePtr
 }
 
 function closeDocInternal(mod: WrappedPdfiumModule, d: OpenDoc): void {
   const raw = em(mod)
+  // Release cached pages before tearing down the form-fill env, otherwise
+  // FORM_OnBeforeClosePage would be called against a dead handle.
+  for (const pagePtr of d.pageCache.values()) {
+    if (d.form.hasForm) notifyPageClosed(mod, d.form, pagePtr)
+    mod.FPDF_ClosePage(pagePtr)
+  }
+  d.pageCache.clear()
   disposeFormState(mod, d.form)
   mod.FPDF_CloseDocument(d.docPtr)
   raw.wasmExports.free(d.bytesPtr)
@@ -226,7 +252,7 @@ export async function renderPage(
   const mod = await getModule()
   const raw = em(mod)
 
-  const pagePtr = mod.FPDF_LoadPage(d.docPtr, pageIndex)
+  const pagePtr = loadCachedPage(mod, d, pageIndex)
   if (!pagePtr) return null
 
   const size = d.pageSizes[pageIndex]
@@ -266,7 +292,6 @@ export async function renderPage(
     FPDF_REVERSE_BYTE_ORDER
   )
   if (d.form.hasForm) {
-    notifyPageLoaded(mod, d.form, pagePtr)
     drawForms(
       mod,
       d.form,
@@ -284,10 +309,9 @@ export async function renderPage(
   const data = new Uint8Array(bufSize)
   data.set(raw.HEAPU8.subarray(bufPtr, bufPtr + bufSize))
 
-  if (d.form.hasForm) notifyPageClosed(mod, d.form, pagePtr)
   mod.FPDFBitmap_Destroy(bitmap)
   raw.wasmExports.free(bufPtr)
-  mod.FPDF_ClosePage(pagePtr)
+  // NB: page handle stays in the cache. Closed by closeDocInternal.
 
   return { width, height, data }
 }
@@ -305,28 +329,20 @@ export async function dispatchFormEvent(
   const d = docs.get(id)
   if (!d || !d.form.hasForm || d.form.isXFA) return
   const mod = await getModule()
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const m = mod as any
-  const pagePtr = m.FPDF_LoadPage(d.docPtr, pageIndex) as number
+  const pagePtr = loadCachedPage(mod, d, pageIndex)
   if (!pagePtr) return
-  try {
-    notifyPageLoaded(mod, d.form, pagePtr)
-    switch (ev.kind) {
-      case 'down':
-      case 'up':
-      case 'move':
-        forwardPointerEvent(mod, d.form, pagePtr, ev.kind, ev.pageX, ev.pageY)
-        break
-      case 'char':
-        forwardChar(mod, d.form, pagePtr, ev.charCode, ev.mods)
-        break
-      case 'keydown':
-        forwardKeyDown(mod, d.form, pagePtr, ev.vkey, ev.mods)
-        break
-    }
-    notifyPageClosed(mod, d.form, pagePtr)
-  } finally {
-    m.FPDF_ClosePage(pagePtr)
+  switch (ev.kind) {
+    case 'down':
+    case 'up':
+    case 'move':
+      forwardPointerEvent(mod, d.form, pagePtr, ev.kind, ev.pageX, ev.pageY)
+      break
+    case 'char':
+      forwardChar(mod, d.form, pagePtr, ev.charCode, ev.mods)
+      break
+    case 'keydown':
+      forwardKeyDown(mod, d.form, pagePtr, ev.vkey, ev.mods)
+      break
   }
 }
 
