@@ -164,6 +164,24 @@ html, body, #root {
   background: #345;
   color: #cef;
 }
+.annot-props {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 6px;
+}
+.annot-props .swatch {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1px solid #444;
+  padding: 0;
+  cursor: pointer;
+}
+.annot-props .swatch[aria-pressed='true'] {
+  outline: 2px solid #cef;
+  outline-offset: 1px;
+}
 .highlight {
   position: absolute;
   background: rgba(255, 230, 0, 0.4);

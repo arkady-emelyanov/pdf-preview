@@ -14,12 +14,14 @@ import {
 } from '../../shared/edit'
 import {
   addAnnotation as addAnnFn,
+  defaultBoxStyle,
   deleteAnnotation as delAnnFn,
   updateAnnotation as updAnnFn,
-  type Annotation
+  type Annotation,
+  type BoxStyle
 } from '../../shared/annotations'
 
-export type Tool = 'select' | 'rect'
+export type Tool = 'select' | 'rect' | 'oval'
 
 export type ZoomMode = 'fit-width' | 'fit-page' | 'actual' | 'custom'
 
@@ -58,6 +60,8 @@ interface State {
 
   // Annotations
   tool: Tool
+  /** Style applied to the next shape drawn (and shown in the props panel when nothing's selected). */
+  toolDefaults: BoxStyle
   selectedAnnotation: { page: number; id: string } | null
 
   // View setters
@@ -94,6 +98,7 @@ interface State {
 
   // Annotations
   setTool: (t: Tool) => void
+  setToolDefaults: (patch: Partial<BoxStyle>) => void
   addAnnotation: (page: number, a: Annotation) => void
   updateAnnotation: (page: number, id: string, patch: Partial<Annotation>) => void
   deleteAnnotation: (page: number, id: string) => void
@@ -141,6 +146,7 @@ export const useStore = create<State>((set, get) => ({
   jumpRequest: null,
 
   tool: 'select',
+  toolDefaults: { ...defaultBoxStyle },
   selectedAnnotation: null,
 
   setDoc: (d) => {
@@ -284,6 +290,9 @@ export const useStore = create<State>((set, get) => ({
       tool: t,
       selectedAnnotation: t === 'select' ? st.selectedAnnotation : null
     })),
+
+  setToolDefaults: (patch) =>
+    set((st) => ({ toolDefaults: { ...st.toolDefaults, ...patch } })),
 
   addAnnotation: (page, a) => {
     const s = get()

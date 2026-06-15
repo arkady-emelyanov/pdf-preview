@@ -5,7 +5,10 @@ import {
   canvasToPoint,
   deleteAnnotation,
   handleCenter,
+  hitTest,
+  hitTestOval,
   hitTestRect,
+  makeBox,
   makeRect,
   parseHexColor,
   pointToCanvas,
@@ -89,6 +92,31 @@ describe('coordinate conversions', () => {
     expect(r.y).toBe(1284)
     expect(r.w).toBe(100)
     expect(r.h).toBe(100)
+  })
+})
+
+describe('makeBox', () => {
+  it('builds an oval that carries kind through hitTest', () => {
+    const o = makeBox('oval', { x: 0, y: 0, w: 100, h: 50, stroke: '#0a0' })
+    expect(o.kind).toBe('oval')
+    expect(o.stroke).toBe('#0a0')
+    // Centroid is inside the ellipse.
+    expect(hitTest(o, 50, 25)).toBe(true)
+    // Corner of the bounding box is outside the ellipse.
+    expect(hitTest(o, 1, 1, 0)).toBe(false)
+  })
+})
+
+describe('hitTestOval', () => {
+  const a = { x: 0, y: 0, w: 100, h: 50 }
+  it('inside the ellipse', () => {
+    expect(hitTestOval(a, 50, 25, 0)).toBe(true)
+  })
+  it('outside the ellipse but inside the bbox', () => {
+    expect(hitTestOval(a, 1, 1, 0)).toBe(false)
+  })
+  it('outside the bbox', () => {
+    expect(hitTestOval(a, -50, 25, 0)).toBe(false)
   })
 })
 

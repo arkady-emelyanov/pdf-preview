@@ -57,6 +57,7 @@ beforeEach(() => {
     viewportSize: { w: 0, h: 0 },
     jumpRequest: null,
     tool: 'select',
+    toolDefaults: { stroke: '#d33', strokeWidth: 2, opacity: 1 },
     selectedAnnotation: null
   })
 })
@@ -380,6 +381,18 @@ describe('store: annotations', () => {
     api.undo()
     // beginLiveEdit snapshotted the state after add — so undo restores x=50
     expect(useStore.getState().pages[0].annotations![0].x).toBe(50)
+  })
+
+  it('setToolDefaults patches and persists across setDoc', async () => {
+    const api = useStore.getState()
+    api.setToolDefaults({ stroke: '#0a0', strokeWidth: 4 })
+    expect(useStore.getState().toolDefaults).toMatchObject({
+      stroke: '#0a0',
+      strokeWidth: 4,
+      opacity: 1
+    })
+    api.setDoc(doc) // reopen
+    expect(useStore.getState().toolDefaults.stroke).toBe('#0a0')
   })
 
   it('addAnnotation rejects out-of-range page', async () => {

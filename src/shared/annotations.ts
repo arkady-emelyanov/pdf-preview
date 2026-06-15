@@ -7,11 +7,11 @@
  * same envelope (id, page-coord geometry, style, author, timestamps).
  */
 
-export type AnnotationKind = 'rect'
+export type AnnotationKind = 'rect' | 'oval'
 
-export interface RectAnnotation {
+/** Shared shape for any bbox-style annotation (rect, oval). */
+export interface BoxAnnotationBase {
   id: string
-  kind: 'rect'
   /** Bottom-left corner in PDF page points. */
   x: number
   y: number
@@ -29,32 +29,60 @@ export interface RectAnnotation {
   modified: number
 }
 
-export type Annotation = RectAnnotation
+export interface RectAnnotation extends BoxAnnotationBase {
+  kind: 'rect'
+}
+
+export interface OvalAnnotation extends BoxAnnotationBase {
+  kind: 'oval'
+}
+
+export type Annotation = RectAnnotation | OvalAnnotation
+
+export interface BoxStyle {
+  stroke: string
+  strokeWidth: number
+  fill?: string
+  opacity: number
+}
+
+export const defaultBoxStyle: BoxStyle = {
+  stroke: '#d33',
+  strokeWidth: 2,
+  opacity: 1
+}
 
 export function newId(): string {
   return Math.random().toString(36).slice(2, 10) + Date.now().toString(36)
 }
 
-export function makeRect(
-  init: Pick<RectAnnotation, 'x' | 'y' | 'w' | 'h'> &
-    Partial<Pick<RectAnnotation, 'stroke' | 'strokeWidth' | 'fill' | 'opacity' | 'author'>>
-): RectAnnotation {
+export function makeBox(
+  kind: 'rect' | 'oval',
+  init: { x: number; y: number; w: number; h: number } & Partial<BoxStyle> & { author?: string }
+): Annotation {
   const now = Date.now()
   return {
     id: newId(),
-    kind: 'rect',
+    kind,
     x: init.x,
     y: init.y,
     w: Math.max(0, init.w),
     h: Math.max(0, init.h),
-    stroke: init.stroke ?? '#d33',
-    strokeWidth: init.strokeWidth ?? 2,
+    stroke: init.stroke ?? defaultBoxStyle.stroke,
+    strokeWidth: init.strokeWidth ?? defaultBoxStyle.strokeWidth,
     fill: init.fill,
-    opacity: init.opacity ?? 1,
+    opacity: init.opacity ?? defaultBoxStyle.opacity,
     author: init.author,
     created: now,
     modified: now
-  }
+  } as Annotation
+}
+
+/** Back-compat alias used by older tests and call sites. */
+export function makeRect(
+  init: { x: number; y: number; w: number; h: number } & Partial<BoxStyle> & { author?: string }
+): RectAnnotation {
+  return makeBox('rect', init) as RectAnnotation
 }
 
 export function addAnnotation(list: Annotation[] | undefined, a: Annotation): Annotation[] {
@@ -120,7 +148,7 @@ export function canvasToPoint(
 
 /** Top-left rect in canvas px, ready to draw on the overlay. */
 export function rectToCanvas(
-  a: RectAnnotation,
+  a: BoxAnnotationBase,
   pageHeightPt: number,
   scale: number
 ): { x: number; y: number; w: number; h: number } {
@@ -192,7 +220,7 @@ export function handleCenter(
 }
 
 export function hitTestRect(
-  a: RectAnnotation,
+  a: BoxAnnotationBase,
   ptX: number,
   ptY: number,
   tolerancePt = 4
@@ -204,6 +232,28 @@ export function hitTestRect(
     ptY >= a.y - t &&
     ptY <= a.y + a.h + t
   )
+}
+
+export function hitTestOval(
+  a: BoxAnnotationBase,
+  ptX: number,
+  ptY: number,
+  tolerancePt = 4
+): boolean {
+  const cx = a.x + a.w / 2
+  const cy = a.y + a.h / 2
+  const rx = a.w / 2 + tolerancePt
+  const ry = a.h / 2 + tolerancePt
+  if (rx <= 0 || ry <= 0) return false
+  const dx = (ptX - cx) / rx
+  const dy = (ptY - cy) / ry
+  return dx * dx + dy * dy <= 1
+}
+
+export function hitTest(a: Annotation, ptX: number, ptY: number, tolerancePt = 4): boolean {
+  return a.kind === 'oval'
+    ? hitTestOval(a, ptX, ptY, tolerancePt)
+    : hitTestRect(a, ptX, ptY, tolerancePt)
 }
 
 /** Parse '#rrggbb' (or '#rgb') into [r,g,b] in 0..1. Returns null on failure. */

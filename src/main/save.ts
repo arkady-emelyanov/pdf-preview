@@ -88,28 +88,31 @@ function writeAnnotations(page: PDFPage, anns: Annotation[]): void {
   const arr = existing instanceof PDFArray ? existing : ctx.obj([])
 
   for (const a of anns) {
-    if (a.kind !== 'rect') continue
+    if (a.kind !== 'rect' && a.kind !== 'oval') continue
     const x1 = a.x
     const y1 = a.y
     const x2 = a.x + a.w
     const y2 = a.y + a.h
     const rgb = parseHexColor(a.stroke) ?? [0.8, 0.2, 0.2]
+    const subtype = a.kind === 'oval' ? 'Circle' : 'Square'
     const dict = ctx.obj({
       Type: 'Annot',
-      Subtype: 'Square',
+      Subtype: subtype,
       Rect: [x1, y1, x2, y2],
       C: rgb,
       CA: a.opacity,
-      F: 4, // Print flag
+      F: 4,
       BS: ctx.obj({ Type: 'Border', W: a.strokeWidth, S: PDFName.of('S') }),
       M: PDFString.of(toPdfDate(new Date(a.modified))),
       T: a.author ? PDFHexString.fromText(a.author) : undefined,
       NM: PDFString.of(a.id)
     })
-    // ctx.obj quirk: undefined entries are still emitted; drop them.
     if (!a.author) dict.delete(PDFName.of('T'))
-    // pdf-lib emits raw numbers as PDFNumber; force /CA in 0..1 form.
     dict.set(PDFName.of('CA'), PDFNumber.of(a.opacity))
+    if (a.fill) {
+      const fillRgb = parseHexColor(a.fill)
+      if (fillRgb) dict.set(PDFName.of('IC'), ctx.obj(fillRgb))
+    }
     arr.push(dict)
   }
   node.set(PDFName.of('Annots'), arr)

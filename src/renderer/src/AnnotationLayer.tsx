@@ -4,12 +4,13 @@ import {
   HANDLES,
   canvasToPoint,
   handleCenter,
-  hitTestRect,
-  makeRect,
+  hitTest,
+  makeBox,
   rectToCanvas,
   resizeRect,
-  type HandlePos,
-  type RectAnnotation
+  type Annotation,
+  type BoxAnnotationBase,
+  type HandlePos
 } from '../../shared/annotations'
 
 const HANDLE_SIZE_PX = 8
@@ -59,6 +60,38 @@ interface ResizeState {
   origH: number
 }
 
+function drawBox(
+  ctx: CanvasRenderingContext2D,
+  a: Annotation,
+  pageHeightPt: number,
+  scale: number
+): void {
+  const r = rectToCanvas(a, pageHeightPt, scale)
+  ctx.globalAlpha = a.opacity
+  ctx.lineWidth = a.strokeWidth
+  ctx.strokeStyle = a.stroke
+  if (a.kind === 'oval') {
+    const cx = r.x + r.w / 2
+    const cy = r.y + r.h / 2
+    if (a.fill) {
+      ctx.fillStyle = a.fill
+      ctx.beginPath()
+      ctx.ellipse(cx, cy, r.w / 2, r.h / 2, 0, 0, Math.PI * 2)
+      ctx.fill()
+    }
+    ctx.beginPath()
+    ctx.ellipse(cx, cy, r.w / 2, r.h / 2, 0, 0, Math.PI * 2)
+    ctx.stroke()
+  } else {
+    if (a.fill) {
+      ctx.fillStyle = a.fill
+      ctx.fillRect(r.x, r.y, r.w, r.h)
+    }
+    ctx.strokeRect(r.x, r.y, r.w, r.h)
+  }
+  ctx.globalAlpha = 1
+}
+
 export function AnnotationLayer({
   virtualIndex,
   pageWidthPt,
@@ -66,6 +99,7 @@ export function AnnotationLayer({
   scale
 }: Props): JSX.Element {
   const tool = useStore((s) => s.tool)
+  const toolDefaults = useStore((s) => s.toolDefaults)
   const page = useStore((s) => s.pages[virtualIndex])
   const selected = useStore((s) => s.selectedAnnotation)
   const setSelected = useStore((s) => s.setSelectedAnnotation)
@@ -80,6 +114,7 @@ export function AnnotationLayer({
   const [resize, setResize] = useState<ResizeState | null>(null)
   const [hoverHandle, setHoverHandle] = useState<HandlePos | null>(null)
 
+  const drawingTool = tool === 'rect' || tool === 'oval'
   const cssW = pageWidthPt * scale
   const cssH = pageHeightPt * scale
 
@@ -95,24 +130,14 @@ export function AnnotationLayer({
     ctx.clearRect(0, 0, cssW, cssH)
 
     for (const a of annotations) {
-      if (a.kind !== 'rect') continue
-      const r = rectToCanvas(a, pageHeightPt, scale)
-      ctx.globalAlpha = a.opacity
-      if (a.fill) {
-        ctx.fillStyle = a.fill
-        ctx.fillRect(r.x, r.y, r.w, r.h)
-      }
-      ctx.strokeStyle = a.stroke
-      ctx.lineWidth = a.strokeWidth
-      ctx.strokeRect(r.x, r.y, r.w, r.h)
-      ctx.globalAlpha = 1
+      drawBox(ctx, a, pageHeightPt, scale)
       if (selected && selected.page === virtualIndex && selected.id === a.id) {
+        const r = rectToCanvas(a, pageHeightPt, scale)
         ctx.strokeStyle = '#3aa0ff'
         ctx.setLineDash([4, 3])
         ctx.lineWidth = 1
         ctx.strokeRect(r.x - 2, r.y - 2, r.w + 4, r.h + 4)
         ctx.setLineDash([])
-        // Handles
         const half = HANDLE_SIZE_PX / 2
         ctx.fillStyle = '#fff'
         ctx.strokeStyle = '#3aa0ff'
@@ -130,11 +155,28 @@ export function AnnotationLayer({
       const y = Math.min(draw.startCy, draw.curCy)
       const w = Math.abs(draw.curCx - draw.startCx)
       const h = Math.abs(draw.curCy - draw.startCy)
-      ctx.strokeStyle = '#d33'
-      ctx.lineWidth = 2
-      ctx.strokeRect(x, y, w, h)
+      ctx.strokeStyle = toolDefaults.stroke
+      ctx.lineWidth = toolDefaults.strokeWidth
+      if (tool === 'oval') {
+        ctx.beginPath()
+        ctx.ellipse(x + w / 2, y + h / 2, w / 2, h / 2, 0, 0, Math.PI * 2)
+        ctx.stroke()
+      } else {
+        ctx.strokeRect(x, y, w, h)
+      }
     }
-  }, [annotations, draw, selected, virtualIndex, pageHeightPt, scale, cssW, cssH])
+  }, [
+    annotations,
+    draw,
+    selected,
+    virtualIndex,
+    pageHeightPt,
+    scale,
+    cssW,
+    cssH,
+    tool,
+    toolDefaults
+  ])
 
   const localCoords = (e: React.PointerEvent): { cx: number; cy: number } => {
     const rect = (e.currentTarget as HTMLCanvasElement).getBoundingClientRect()
@@ -146,17 +188,15 @@ export function AnnotationLayer({
     const { cx, cy } = localCoords(e)
     ;(e.currentTarget as HTMLCanvasElement).setPointerCapture(e.pointerId)
 
-    if (tool === 'rect') {
+    if (drawingTool) {
       setDraw({ startCx: cx, startCy: cy, curCx: cx, curCy: cy })
       return
     }
 
     // Select tool. Handles on the currently-selected annotation get first dibs.
     if (selected && selected.page === virtualIndex) {
-      const sel = annotations.find((a) => a.id === selected.id) as
-        | RectAnnotation
-        | undefined
-      if (sel && sel.kind === 'rect') {
+      const sel = annotations.find((a) => a.id === selected.id)
+      if (sel) {
         const hit = hitHandle(sel, cx, cy, pageHeightPt, scale)
         if (hit) {
           const { x: ptX, y: ptY } = canvasToPoint(cx, cy, pageHeightPt, scale)
@@ -178,10 +218,10 @@ export function AnnotationLayer({
 
     // Otherwise: pick top-most annotation under the cursor.
     const { x: ptX, y: ptY } = canvasToPoint(cx, cy, pageHeightPt, scale)
-    let hit: RectAnnotation | null = null
+    let hit: Annotation | null = null
     for (let i = annotations.length - 1; i >= 0; i--) {
       const a = annotations[i]
-      if (a.kind === 'rect' && hitTestRect(a, ptX, ptY)) {
+      if (hitTest(a, ptX, ptY)) {
         hit = a
         break
       }
@@ -230,12 +270,9 @@ export function AnnotationLayer({
       liveUpdateAnnotation(virtualIndex, resize.id, r)
       return
     }
-    // Hover: update cursor when over a handle of the selected annotation.
     if (tool === 'select' && selected && selected.page === virtualIndex) {
-      const sel = annotations.find((a) => a.id === selected.id) as
-        | RectAnnotation
-        | undefined
-      const h = sel && sel.kind === 'rect' ? hitHandle(sel, cx, cy, pageHeightPt, scale) : null
+      const sel = annotations.find((a) => a.id === selected.id)
+      const h = sel ? hitHandle(sel, cx, cy, pageHeightPt, scale) : null
       if (h !== hoverHandle) setHoverHandle(h)
     } else if (hoverHandle) {
       setHoverHandle(null)
@@ -250,7 +287,6 @@ export function AnnotationLayer({
       const wCss = Math.abs(draw.curCx - draw.startCx)
       const hCss = Math.abs(draw.curCy - draw.startCy)
       setDraw(null)
-      // Discard near-zero drags.
       if (wCss >= 4 && hCss >= 4) {
         const tl = canvasToPoint(x0, y0, pageHeightPt, scale)
         const br = canvasToPoint(x0 + wCss, y0 + hCss, pageHeightPt, scale)
@@ -258,8 +294,9 @@ export function AnnotationLayer({
         const y = Math.min(tl.y, br.y)
         const w = Math.abs(br.x - tl.x)
         const h = Math.abs(br.y - tl.y)
-        const rect = makeRect({ x, y, w, h })
-        addAnnotation(virtualIndex, rect)
+        const kind = tool === 'oval' ? 'oval' : 'rect'
+        const shape = makeBox(kind, { x, y, w, h, ...toolDefaults })
+        addAnnotation(virtualIndex, shape)
       }
     }
     setMove(null)
@@ -267,7 +304,7 @@ export function AnnotationLayer({
   }
 
   function hitHandle(
-    a: RectAnnotation,
+    a: BoxAnnotationBase,
     cx: number,
     cy: number,
     pageH: number,
@@ -282,8 +319,11 @@ export function AnnotationLayer({
     return null
   }
 
-  const cursor =
-    tool === 'rect' ? 'crosshair' : hoverHandle ? HANDLE_CURSORS[hoverHandle] : 'default'
+  const cursor = drawingTool
+    ? 'crosshair'
+    : hoverHandle
+      ? HANDLE_CURSORS[hoverHandle]
+      : 'default'
   return (
     <canvas
       ref={ref}
@@ -294,8 +334,7 @@ export function AnnotationLayer({
         width: cssW,
         height: cssH,
         cursor,
-        // Only swallow pointer events when the layer can do something useful.
-        pointerEvents: tool === 'rect' || annotations.length > 0 ? 'auto' : 'none'
+        pointerEvents: drawingTool || annotations.length > 0 ? 'auto' : 'none'
       }}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useStore } from './store'
 import { identityPages, pagesEqual, type VirtualPage } from '../../shared/edit'
+import { AnnotationProps } from './AnnotationProps'
 
 function basenameNoExt(name: string): string {
   const dot = name.lastIndexOf('.')
@@ -203,6 +204,14 @@ export function Toolbar(): JSX.Element {
           >
             ▭
           </button>
+          <button
+            onClick={() => setTool('oval')}
+            aria-pressed={tool === 'oval'}
+            title="Oval annotation (O)"
+          >
+            ◯
+          </button>
+          <AnnotationProps />
           <div className="divider" />
           <button onClick={doSave} disabled={!dirty || busy} title="Save (Ctrl+S)">
             {busy ? '…' : '💾'}

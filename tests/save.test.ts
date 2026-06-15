@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PDFArray, PDFDict, PDFDocument, PDFName, StandardFonts, degrees } from 'pdf-lib'
 import { saveDoc } from '../src/main/save'
-import { makeRect } from '../src/shared/annotations'
+import { makeBox, makeRect } from '../src/shared/annotations'
 
 let workDir: string
 let inputA: string
@@ -161,6 +161,29 @@ describe('saveDoc (annotations)', () => {
     const color = dict.lookup(PDFName.of('C'), PDFArray)
     expect(color.size()).toBe(3)
     expect(Number(color.lookup(0).toString())).toBeCloseTo(1, 5)
+  })
+
+  it('writes a /Circle annotation for an oval and includes /IC when filled', async () => {
+    const out = join(workDir, 'with-oval.pdf')
+    const ann = makeBox('oval', {
+      x: 10,
+      y: 10,
+      w: 100,
+      h: 100,
+      stroke: '#0000ff',
+      fill: '#ff0000'
+    })
+    await saveDoc({ [inputA]: inputA }, out, [
+      { sourceId: inputA, sourceIndex: 0, rotation: 0, annotations: [ann] }
+    ])
+    const doc = await PDFDocument.load(await readFile(out))
+    const arr = doc.getPage(0).node.Annots() as PDFArray
+    const dict = arr.lookup(0, PDFDict)
+    expect(dict.lookup(PDFName.of('Subtype'))?.toString()).toBe('/Circle')
+    const ic = dict.lookup(PDFName.of('IC'), PDFArray)
+    expect(ic.size()).toBe(3)
+    expect(Number(ic.lookup(0).toString())).toBeCloseTo(1, 5)
+    expect(Number(ic.lookup(1).toString())).toBeCloseTo(0, 5)
   })
 
   it('page without annotations has 0-length or absent /Annots', async () => {

@@ -97,6 +97,11 @@ export function useKeyboardShortcuts(): void {
         s.setTool('rect')
         return
       }
+      if (e.key.toLowerCase() === 'o' && !mod) {
+        e.preventDefault()
+        s.setTool('oval')
+        return
+      }
       if (e.key.toLowerCase() === 'v' && !mod) {
         e.preventDefault()
         s.setTool('select')
