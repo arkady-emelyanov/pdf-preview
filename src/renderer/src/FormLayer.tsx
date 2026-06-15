@@ -103,13 +103,12 @@ export function FormLayer({
         inset: 0,
         width: cssW,
         height: cssH,
-        // No background — the rendered field appearances come from the page
-        // bitmap underneath. We're just a transparent input capture surface.
-        outline: 'none',
-        // contentEditable defaults to user-text-cursor; widgets give their
-        // own visual feedback via PDFium's caret rendering.
+        zIndex: 4,
+        // TEMP diagnostic tint: lets us see whether FormLayer actually
+        // occupies the page area. Remove once forms are confirmed working.
+        background: 'rgba(255, 200, 0, 0.10)',
+        outline: '2px dashed rgba(255, 165, 0, 0.6)',
         cursor: 'default',
-        // Disable iOS-style touch callouts so PDFium's hit-test wins.
         WebkitUserSelect: 'none',
         userSelect: 'none'
       }}
