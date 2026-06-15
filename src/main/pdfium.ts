@@ -150,9 +150,12 @@ export async function openDoc(id: string, bytes: Uint8Array): Promise<number> {
   }
 
   const form = initFormState(mod, docPtr)
-  const baseline = form.hasForm
-    ? new Map(readFieldValues(mod, form, pageCount).map((f) => [f.name, f.value]))
-    : null
+  const initial = form.hasForm ? readFieldValues(mod, form, pageCount) : []
+  if (form.hasForm) {
+    console.log(`[forms] open: ${initial.length} fields`)
+    for (const f of initial) console.log(`  ${f.type} "${f.name}" = ${JSON.stringify(f.value)}`)
+  }
+  const baseline = form.hasForm ? new Map(initial.map((f) => [f.name, f.value])) : null
   docs.set(id, {
     docPtr,
     bytesPtr,
@@ -176,28 +179,30 @@ export async function refreshFormBaseline(id: string): Promise<void> {
 /** Compute whether any form field's current value differs from the baseline.
  *  Uses the focused widget's *live* edit buffer (so per-keystroke dirty
  *  works for text inputs) and falls back to the committed `/V` for every
- *  other field. */
+ *  other field. Values are trimmed before comparison so "looks empty"
+ *  options like USCIS forms' " " (one-space export value) compare equal
+ *  to a genuine empty baseline. */
 export async function computeFormDirty(id: string): Promise<boolean> {
   const d = docs.get(id)
   if (!d || !d.form.hasForm || !d.formBaseline) return false
   const mod = await getModule()
   const live = readFocusedFieldLive(mod, d.form, (pi) => d.pageCache.get(pi) ?? 0)
   const current = readFieldValues(mod, d.form, d.pageCount)
-  if (current.length !== d.formBaseline.size) {
-    console.log(`[forms] dirty: count mismatch current=${current.length} baseline=${d.formBaseline.size}`)
-    return true
-  }
+  if (current.length !== d.formBaseline.size) return true
   for (const f of current) {
     const value = live && live.name === f.name ? live.value : f.value
     const orig = d.formBaseline.get(f.name)
-    if (orig === undefined || orig !== value) {
-      console.log(
-        `[forms] dirty: ${f.name} baseline=${JSON.stringify(orig)} value=${JSON.stringify(value)} (live=${live?.name === f.name ? 'yes' : 'no'})`
-      )
-      return true
-    }
+    if (orig === undefined) return true
+    if (normalize(orig) !== normalize(value)) return true
   }
   return false
+}
+
+/** Trim leading + trailing whitespace + collapse interior runs. Forms in the
+ *  wild use " " as a placeholder "no selection" and we don't want that to
+ *  read as dirty against an open-state baseline of "". */
+function normalize(s: string): string {
+  return s.replace(/\s+/g, ' ').trim()
 }
 
 /** Load a page through the per-doc cache. Stays alive until the doc closes,
