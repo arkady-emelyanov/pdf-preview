@@ -29,6 +29,13 @@ import {
 import type { FormEvent } from '../shared/ipc'
 import type { VirtualPage as VP } from '../shared/edit'
 import { saveDoc } from './save'
+import {
+  cancelJob as printCancelJob,
+  getJobStatus as printGetJobStatus,
+  getPrinterOptions,
+  listPrinters,
+  print as printJob
+} from './print'
 import { loadAnnotations } from './loadAnnotations'
 import type { VirtualPage } from '../shared/edit'
 
@@ -259,6 +266,14 @@ app.whenReady().then(() => {
       if (!win.isDestroyed()) win.close()
     })
   })
+
+  ipcMain.handle('pdf:listPrinters', () => listPrinters())
+  ipcMain.handle('pdf:printerOptions', (_evt, name: string) =>
+    getPrinterOptions(name)
+  )
+  ipcMain.handle('pdf:print', (_evt, job) => printJob(job))
+  ipcMain.handle('pdf:jobStatus', (_evt, jobId: string) => printGetJobStatus(jobId))
+  ipcMain.handle('pdf:cancelJob', (_evt, jobId: string) => printCancelJob(jobId))
 
   ipcMain.on('pdf:setMenuState', (_evt, patch: Partial<MenuState>) => {
     setMenuState(patch)

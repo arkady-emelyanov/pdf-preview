@@ -126,6 +126,13 @@ export function buildMenu(): void {
           click: () => send('menu:mergePdfs')
         },
         { type: 'separator' },
+        {
+          label: 'Print…',
+          accelerator: 'CmdOrCtrl+P',
+          enabled: hasDoc,
+          click: () => send('menu:print')
+        },
+        { type: 'separator' },
         { role: 'close', label: 'Close Window' },
         { role: 'quit' }
       ]

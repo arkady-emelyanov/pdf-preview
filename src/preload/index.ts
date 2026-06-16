@@ -3,7 +3,12 @@ import type {
   DocInfo,
   FormEvent,
   FormFieldValue,
+  JobStatus,
   PageRect,
+  PrintJob,
+  PrintResult,
+  PrinterInfo,
+  PrinterOption,
   RenderedPageMsg,
   SourceInfo
 } from '../shared/ipc'
@@ -25,6 +30,7 @@ type MenuChannel =
   | 'rotateRight'
   | 'deletePages'
   | 'find'
+  | 'print'
 
 interface MenuStatePatch {
   hasDoc?: boolean
@@ -81,6 +87,13 @@ const api = {
     defaultName: string
   ): Promise<{ ok: true; path: string } | { ok: false; error?: string }> =>
     ipcRenderer.invoke('pdf:saveAs', sources, pages, defaultName),
+  listPrinters: (): Promise<PrinterInfo[]> => ipcRenderer.invoke('pdf:listPrinters'),
+  printerOptions: (name: string): Promise<PrinterOption[]> =>
+    ipcRenderer.invoke('pdf:printerOptions', name),
+  print: (job: PrintJob): Promise<PrintResult> => ipcRenderer.invoke('pdf:print', job),
+  jobStatus: (jobId: string): Promise<JobStatus> =>
+    ipcRenderer.invoke('pdf:jobStatus', jobId),
+  cancelJob: (jobId: string): Promise<void> => ipcRenderer.invoke('pdf:cancelJob', jobId),
   setDirty: (dirty: boolean): void => ipcRenderer.send('pdf:setDirty', dirty),
   setMenuState: (patch: MenuStatePatch): void =>
     ipcRenderer.send('pdf:setMenuState', patch),

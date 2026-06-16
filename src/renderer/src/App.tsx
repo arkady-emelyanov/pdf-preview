@@ -3,14 +3,15 @@ import { useStore } from './store'
 import { Toolbar } from './Toolbar'
 import { Thumbnails } from './Thumbnails'
 import { Viewport } from './Viewport'
-import { SideNav } from './SideNav'
 import { SearchBar } from './SearchBar'
+import { PrintDialog } from './PrintDialog'
 import { copyTextSelection, useKeyboardShortcuts } from './keys'
 import { pagesEqual } from '../../shared/edit'
 
 export function App(): JSX.Element {
   const setDoc = useStore((s) => s.setDoc)
   const [dragOver, setDragOver] = useState(false)
+  const [printOpen, setPrintOpen] = useState(false)
   useKeyboardShortcuts()
 
   useEffect(() => {
@@ -77,7 +78,10 @@ export function App(): JSX.Element {
       window.pdf.onMenu('rotateLeft', () => useStore.getState().rotateSelection(-90)),
       window.pdf.onMenu('rotateRight', () => useStore.getState().rotateSelection(90)),
       window.pdf.onMenu('deletePages', () => useStore.getState().deleteSelection()),
-      window.pdf.onMenu('find', () => useStore.getState().openSearch())
+      window.pdf.onMenu('find', () => useStore.getState().openSearch()),
+      window.pdf.onMenu('print', () => {
+        if (useStore.getState().doc) setPrintOpen(true)
+      })
     ]
     return () => offs.forEach((off) => off())
   }, [])
@@ -174,10 +178,10 @@ export function App(): JSX.Element {
         <Thumbnails />
         <div className="viewport-container">
           <Viewport />
-          <SideNav />
         </div>
       </div>
       {dragOver && <div className="drop-target">Drop PDF to open</div>}
+      <PrintDialog open={printOpen} onClose={() => setPrintOpen(false)} />
     </div>
   )
 }
