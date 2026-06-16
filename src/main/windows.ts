@@ -69,6 +69,13 @@ function buildWindow(title: string): BrowserWindow {
 
   win.once('ready-to-show', () => win.show())
 
+  // Block the renderer HTML's <title>Preview</title> from overriding the
+  // window title we just set via bindPath. Without this, a second
+  // window's "File2.pdf" title gets clobbered to "Preview" the instant the
+  // page finishes loading (the first window doesn't show the bug because
+  // bindPath runs after its initial load).
+  win.on('page-title-updated', (event) => event.preventDefault())
+
   win.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url)
     return { action: 'deny' }
