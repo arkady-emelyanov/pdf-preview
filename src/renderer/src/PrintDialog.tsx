@@ -152,7 +152,8 @@ function PreviewPage({
         vp.sourceId,
         vp.sourceIndex,
         renderScale,
-        effective
+        effective,
+        /* noFormHighlight */ true
       )
       if (cancelled || !res || !canvasRef.current) return
       const canvas = canvasRef.current

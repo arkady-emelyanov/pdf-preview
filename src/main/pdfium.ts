@@ -301,7 +301,11 @@ export async function renderPage(
   id: string,
   pageIndex: number,
   scale: number,
-  rotation: number = 0
+  rotation: number = 0,
+  /** Skip the per-field highlight tint. The tint is purely a viewer aid;
+   *  it must not appear in the print-preview thumbnail because the user
+   *  reads that as a literal "this is what the paper will look like". */
+  noFormHighlight: boolean = false
 ): Promise<RenderedPage | null> {
   const d = docs.get(id)
   if (!d) return null
@@ -348,6 +352,9 @@ export async function renderPage(
     FPDF_REVERSE_BYTE_ORDER
   )
   if (d.form.hasForm) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const m = mod as any
+    if (noFormHighlight) m.FPDF_SetFormFieldHighlightAlpha(d.form.formHandle, 0)
     drawForms(
       mod,
       d.form,
@@ -360,6 +367,8 @@ export async function renderPage(
       rotateParam,
       FPDF_REVERSE_BYTE_ORDER
     )
+    // Restore the interactive default. Keep in sync with initFormState.
+    if (noFormHighlight) m.FPDF_SetFormFieldHighlightAlpha(d.form.formHandle, 32)
   }
 
   const data = new Uint8Array(bufSize)

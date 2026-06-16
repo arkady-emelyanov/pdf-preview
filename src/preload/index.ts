@@ -50,9 +50,17 @@ const api = {
     sourceId: string,
     pageIndex: number,
     scale: number,
-    rotation = 0
+    rotation = 0,
+    noFormHighlight = false
   ): Promise<RenderedPageMsg | null> =>
-    ipcRenderer.invoke('pdf:renderPage', sourceId, pageIndex, scale, rotation),
+    ipcRenderer.invoke(
+      'pdf:renderPage',
+      sourceId,
+      pageIndex,
+      scale,
+      rotation,
+      noFormHighlight
+    ),
   getText: (sourceId: string, pageIndex: number): Promise<string | null> =>
     ipcRenderer.invoke('pdf:getText', sourceId, pageIndex),
   getChars: (

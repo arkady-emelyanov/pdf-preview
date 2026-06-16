@@ -137,8 +137,15 @@ app.whenReady().then(() => {
 
   ipcMain.handle(
     'pdf:renderPage',
-    async (_evt, id: string, pageIndex: number, scale: number, rotation = 0) => {
-      const r = await renderPage(id, pageIndex, scale, rotation)
+    async (
+      _evt,
+      id: string,
+      pageIndex: number,
+      scale: number,
+      rotation = 0,
+      noFormHighlight = false
+    ) => {
+      const r = await renderPage(id, pageIndex, scale, rotation, noFormHighlight)
       if (!r) return null
       return { width: r.width, height: r.height, data: r.data }
     }
