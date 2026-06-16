@@ -11,6 +11,7 @@ import {
   rebindWindowPath
 } from './windows'
 import { buildMenu, setMenuState, showOpenDialog, type MenuState } from './menu'
+import { onRecentsChanged } from './recents'
 import { realpathSync } from 'node:fs'
 import {
   openDoc,
@@ -69,6 +70,7 @@ if (!app.requestSingleInstanceLock()) {
 
 app.whenReady().then(() => {
   buildMenu()
+  onRecentsChanged(() => buildMenu())
 
   ipcMain.handle('pdf:open', async (evt) => {
     const win = BrowserWindow.fromWebContents(evt.sender)

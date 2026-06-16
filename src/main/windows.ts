@@ -1,6 +1,7 @@
 import { BrowserWindow, Menu, dialog, shell } from 'electron'
 import { realpathSync } from 'node:fs'
 import { basename, join } from 'node:path'
+import { pushRecent } from './recents'
 
 const windowsByPath = new Map<string, BrowserWindow>()
 const blankWindows = new Set<BrowserWindow>()
@@ -37,6 +38,7 @@ export function rebindWindowPath(win: BrowserWindow, newPath: string): void {
   // this path; focusOrCreate calls on this path will now focus us.
   windowsByPath.set(key, win)
   win.setTitle(basename(key))
+  pushRecent(key)
 }
 
 function canonical(path: string): string {
@@ -138,6 +140,7 @@ function bindPath(win: BrowserWindow, path: string): void {
   win.setTitle(basename(path))
   win.on('closed', () => windowsByPath.delete(path))
   win.webContents.send('pdf:docAssigned')
+  pushRecent(path)
 }
 
 export function focusOrCreate(path: string): BrowserWindow {

@@ -1,5 +1,8 @@
 import { app, Menu, dialog, BrowserWindow } from 'electron'
+import { existsSync } from 'node:fs'
+import { basename } from 'node:path'
 import { focusOrCreate } from './windows'
+import { clearRecents, getRecents, removeRecent } from './recents'
 
 /**
  * Application-menu state pushed from the renderer via `pdf:setMenuState`.
@@ -96,6 +99,7 @@ export function buildMenu(): void {
           accelerator: 'CmdOrCtrl+O',
           click: async (_item, win) => showOpenDialog(win as BrowserWindow | undefined)
         },
+        buildRecentsSubmenu(),
         { type: 'separator' },
         {
           label: 'Save',
@@ -221,6 +225,36 @@ export function buildMenu(): void {
     }
   ]
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
+}
+
+function buildRecentsSubmenu(): Electron.MenuItemConstructorOptions {
+  const recents = getRecents()
+  const items: Electron.MenuItemConstructorOptions[] = recents.map((path) => ({
+    label: basename(path),
+    sublabel: path,
+    click: () => {
+      // Stale entry — file moved/deleted. Drop it and tell the user.
+      if (!existsSync(path)) {
+        removeRecent(path)
+        const win = BrowserWindow.getFocusedWindow() ?? undefined
+        dialog.showMessageBox(win as BrowserWindow, {
+          type: 'warning',
+          message: 'File not found',
+          detail: path,
+          buttons: ['OK'],
+          noLink: true
+        })
+        return
+      }
+      focusOrCreate(path)
+    }
+  }))
+  if (items.length === 0) {
+    items.push({ label: '(none)', enabled: false })
+  } else {
+    items.push({ type: 'separator' }, { label: 'Clear Recents', click: () => clearRecents() })
+  }
+  return { label: 'Open Recent', submenu: items }
 }
 
 function showAboutDialog(): void {
