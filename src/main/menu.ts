@@ -1,4 +1,4 @@
-import { Menu, dialog, BrowserWindow } from 'electron'
+import { app, Menu, dialog, BrowserWindow } from 'electron'
 import { focusOrCreate } from './windows'
 
 /**
@@ -211,18 +211,42 @@ export function buildMenu(): void {
       ]
     },
     {
+      label: 'Help',
+      submenu: [
+        {
+          label: `About ${app.name}`,
+          click: showAboutDialog
+        }
+      ]
+    },
+    // Invisible — hosts the SPEC's hidden DevTools / reload accelerators so
+    // they remain bound even though we no longer show a View menu.
+    {
       label: 'View',
+      visible: false,
       submenu: [
         { role: 'togglefullscreen' },
-        { type: 'separator' },
         { role: 'reload', accelerator: 'CmdOrCtrl+R' },
         { role: 'toggleDevTools', accelerator: 'CmdOrCtrl+Shift+I' }
       ]
-    },
-    {
-      label: 'Window',
-      submenu: [{ role: 'minimize' }, { role: 'zoom' }]
     }
   ]
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
+}
+
+function showAboutDialog(): void {
+  const win = BrowserWindow.getFocusedWindow() ?? undefined
+  const detail =
+    `Version: ${app.getVersion()}\n` +
+    `Electron: ${process.versions.electron}\n` +
+    `Chromium: ${process.versions.chrome}\n` +
+    `Node: ${process.versions.node}`
+  dialog.showMessageBox(win as BrowserWindow, {
+    type: 'info',
+    title: `About ${app.name}`,
+    message: app.name,
+    detail,
+    buttons: ['OK'],
+    noLink: true
+  })
 }
