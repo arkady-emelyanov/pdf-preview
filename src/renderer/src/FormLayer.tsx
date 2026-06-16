@@ -1,6 +1,16 @@
 import { useRef } from 'react'
 import { useStore } from './store'
 
+/** Module-level "which page currently has form focus". PDFium owns one focused
+ *  widget per document, but each page bitmap is cached independently — so when
+ *  the user clicks into a field on page B while page A's field is focused, A's
+ *  cached bitmap still shows A's focus chrome until we tell that page to
+ *  repaint. We bump the old page's revision when a 'down' lands on a different
+ *  page so it re-renders without the stale focus border. */
+const focusedPageRef: { current: { sourceId: string; index: number } | null } = {
+  current: null
+}
+
 interface Props {
   sourceId: string
   sourceIndex: number
@@ -75,6 +85,13 @@ export function FormLayer({
         // user's intent was to focus a specific widget, not re-frame the
         // page; PDFium handles its own focus visibility inside the bitmap.
         ;(e.currentTarget as HTMLDivElement).focus({ preventScroll: true })
+        // If form focus was previously on a different page, force that page
+        // to repaint so its widget loses the stale focus chrome.
+        const prev = focusedPageRef.current
+        if (prev && (prev.sourceId !== sourceId || prev.index !== sourceIndex)) {
+          bumpFormRevision(prev.sourceId, prev.index)
+        }
+        focusedPageRef.current = { sourceId, index: sourceIndex }
         const { cx, cy } = localCoords(e)
         const { x, y } = canvasToPagePt(cx, cy)
         void window.pdf.formEvent(sourceId, sourceIndex, { kind: 'down', pageX: x, pageY: y })

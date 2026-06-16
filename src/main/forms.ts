@@ -107,7 +107,10 @@ export function initFormState(
   for (let ftype = 1; ftype <= 7; ftype++) {
     m.FPDF_SetFormFieldHighlightColor(formHandle, ftype, COLOR)
   }
-  m.FPDF_SetFormFieldHighlightAlpha(formHandle, 80)
+  // Softer than Chrome's ~80/255 — still hints at fillable fields when the
+  // user scans the page, but doesn't paint every page-load with a wall of
+  // saturated tint that reads as "everything is selected".
+  m.FPDF_SetFormFieldHighlightAlpha(formHandle, 32)
   // Strip the ReadOnly flag (bit 0) from every widget. USCIS / IRS / many
   // government forms mark "secondary" fields ReadOnly and rely on Acrobat
   // JavaScript to flip them on when the user checks a primary control
