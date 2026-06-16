@@ -87,7 +87,11 @@ export function buildMenu(): void {
           enabled: hasDoc,
           click: () => send('menu:insertPages')
         },
-        { label: 'Merge PDFs…', click: () => send('menu:mergePdfs') },
+        {
+          label: 'Merge PDFs…',
+          enabled: hasDoc,
+          click: () => send('menu:mergePdfs')
+        },
         { type: 'separator' },
         { role: 'close', label: 'Close Window' },
         { role: 'quit' }
