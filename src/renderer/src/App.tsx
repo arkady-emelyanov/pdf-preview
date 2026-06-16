@@ -41,7 +41,8 @@ export function App(): JSX.Element {
       window.pdf.onMenu('redo', () => useStore.getState().redo()),
       window.pdf.onMenu('rotateLeft', () => useStore.getState().rotateSelection(-90)),
       window.pdf.onMenu('rotateRight', () => useStore.getState().rotateSelection(90)),
-      window.pdf.onMenu('deletePages', () => useStore.getState().deleteSelection())
+      window.pdf.onMenu('deletePages', () => useStore.getState().deleteSelection()),
+      window.pdf.onMenu('find', () => useStore.getState().openSearch())
     ]
     return () => offs.forEach((off) => off())
   }, [])

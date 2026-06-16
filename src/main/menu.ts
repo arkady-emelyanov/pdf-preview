@@ -125,6 +125,13 @@ export function buildMenu(): void {
       label: 'Page',
       submenu: [
         {
+          label: 'Find…',
+          accelerator: 'CmdOrCtrl+F',
+          enabled: hasDoc,
+          click: () => send('menu:find')
+        },
+        { type: 'separator' },
+        {
           label: 'Rotate Left',
           accelerator: 'CmdOrCtrl+[',
           enabled: hasDoc,

@@ -22,6 +22,7 @@ type MenuChannel =
   | 'rotateLeft'
   | 'rotateRight'
   | 'deletePages'
+  | 'find'
 
 interface MenuStatePatch {
   hasDoc?: boolean
