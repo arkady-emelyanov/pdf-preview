@@ -482,10 +482,6 @@ export function AnnotationLayer({
       ctx.setLineDash([])
       return
     }
-    if (isFreeText(a)) {
-      drawBoxChrome(ctx, a, pageH, sc, false)
-      return
-    }
     drawBoxChrome(ctx, a, pageH, sc, true)
   }
 
@@ -659,25 +655,23 @@ export function AnnotationLayer({
             })
             return
           }
-          if (!isFreeText(sel)) {
-            const hit = hitBoxHandle(sel, cx, cy, pageHeightPt, scale)
-            if (hit) {
-              const { x: ptX, y: ptY } = canvasToPoint(cx, cy, pageHeightPt, scale)
-              beginLiveEdit()
-              setResize({
-                kind: 'box',
-                id: sel.id,
-                pos: hit,
-                startPtX: ptX,
-                startPtY: ptY,
-                origX: sel.x,
-                origY: sel.y,
-                origW: sel.w,
-                origH: sel.h,
-                origRotation: sel.rotation ?? 0
-              })
-              return
-            }
+          const hit = hitBoxHandle(sel, cx, cy, pageHeightPt, scale)
+          if (hit) {
+            const { x: ptX, y: ptY } = canvasToPoint(cx, cy, pageHeightPt, scale)
+            beginLiveEdit()
+            setResize({
+              kind: 'box',
+              id: sel.id,
+              pos: hit,
+              startPtX: ptX,
+              startPtY: ptY,
+              origX: sel.x,
+              origY: sel.y,
+              origW: sel.w,
+              origH: sel.h,
+              origRotation: sel.rotation ?? 0
+            })
+            return
           }
         }
       }
@@ -835,7 +829,7 @@ export function AnnotationLayer({
           h = hitLineEndpoint(sel, cx, cy, pageHeightPt, scale)
         } else {
           if (hitRotateHandle(sel, cx, cy, pageHeightPt, scale)) h = 'rot'
-          else if (!isFreeText(sel)) h = hitBoxHandle(sel, cx, cy, pageHeightPt, scale)
+          else h = hitBoxHandle(sel, cx, cy, pageHeightPt, scale)
         }
       }
       if (h !== hoverHandle) setHoverHandle(h)
@@ -890,7 +884,7 @@ export function AnnotationLayer({
   }
 
   function hitBoxHandle(
-    a: BoxAnnotationBase,
+    a: RotatableBox,
     cx: number,
     cy: number,
     pageH: number,
