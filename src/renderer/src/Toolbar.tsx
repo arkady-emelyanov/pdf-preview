@@ -24,7 +24,6 @@ export function Toolbar(): JSX.Element {
   const toggleSidebar = useStore((s) => s.toggleSidebar)
   const setScale = useStore((s) => s.setScale)
   const setZoomMode = useStore((s) => s.setZoomMode)
-  const requestJump = useStore((s) => s.requestJump)
   const openSearch = useStore((s) => s.openSearch)
   const insertPages = useStore((s) => s.insertPages)
   const registerSource = useStore((s) => s.registerSource)
@@ -278,40 +277,6 @@ export function Toolbar(): JSX.Element {
         <option value="custom">{Math.round(scale * 100)}%</option>
       </select>
       <button onClick={() => setScale(Math.min(6, scale + 0.25))}>+</button>
-
-      {doc && (
-        <>
-          <div className="divider" />
-          <button
-            onClick={() => requestJump(Math.max(0, currentPage - 1))}
-            disabled={currentPage <= 0}
-            title="Previous page (←)"
-          >
-            ‹
-          </button>
-          <span className="meta">
-            <input
-              type="number"
-              min={1}
-              max={pages.length}
-              value={currentPage + 1}
-              onChange={(e) => {
-                const n = Number(e.target.value)
-                if (Number.isFinite(n)) requestJump(Math.max(0, Math.min(pages.length - 1, n - 1)))
-              }}
-              className="page-input"
-            />{' '}
-            / {pages.length}
-          </span>
-          <button
-            onClick={() => requestJump(Math.min(pages.length - 1, currentPage + 1))}
-            disabled={currentPage >= pages.length - 1}
-            title="Next page (→)"
-          >
-            ›
-          </button>
-        </>
-      )}
     </div>
   )
 }
