@@ -201,7 +201,7 @@ export const useStore = create<State>((set, get) => ({
   selection: new Set(),
 
   scale: 1.25,
-  zoomMode: 'custom',
+  zoomMode: 'fit-width',
   currentPage: 0,
   sidebarOpen: true,
   searchOpen: false,
