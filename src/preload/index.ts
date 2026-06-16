@@ -16,7 +16,9 @@ type MenuChannel =
   | 'insertPages'
   | 'mergePdfs'
   | 'saveAndClose'
+  | 'cut'
   | 'copy'
+  | 'paste'
   | 'undo'
   | 'redo'
   | 'rotateLeft'
@@ -30,6 +32,10 @@ interface MenuStatePatch {
   canUndo?: boolean
   canRedo?: boolean
   hasSelection?: boolean
+  hasTextSelection?: boolean
+  hasAnnotationSelection?: boolean
+  hasClipboard?: boolean
+  hasInputFocus?: boolean
 }
 
 const api = {
@@ -76,8 +82,6 @@ const api = {
   ): Promise<{ ok: true; path: string } | { ok: false; error?: string }> =>
     ipcRenderer.invoke('pdf:saveAs', sources, pages, defaultName),
   setDirty: (dirty: boolean): void => ipcRenderer.send('pdf:setDirty', dirty),
-  setHasTextSelection: (has: boolean): void =>
-    ipcRenderer.send('pdf:setHasTextSelection', has),
   setMenuState: (patch: MenuStatePatch): void =>
     ipcRenderer.send('pdf:setMenuState', patch),
   saveAndCloseResult: (ok: boolean): void =>

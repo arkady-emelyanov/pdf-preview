@@ -7,7 +7,6 @@ import {
   createBlankWindow,
   pathForWindow,
   setWindowDirty,
-  setWindowHasTextSelection,
   approveClose,
   rebindWindowPath
 } from './windows'
@@ -263,12 +262,6 @@ app.whenReady().then(() => {
 
   ipcMain.on('pdf:setMenuState', (_evt, patch: Partial<MenuState>) => {
     setMenuState(patch)
-  })
-
-  ipcMain.on('pdf:setHasTextSelection', (evt, has: boolean) => {
-    const win = BrowserWindow.fromWebContents(evt.sender)
-    if (!win) return
-    setWindowHasTextSelection(win, has)
   })
 
   ipcMain.on('pdf:setDirty', (evt, dirty: boolean) => {

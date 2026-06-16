@@ -28,9 +28,44 @@ export function App(): JSX.Element {
     }
   }, [setDoc])
 
-  // Edit > Copy and right-click → Copy both fire menu:copy on the renderer.
+  // Edit > Copy / Cut / Paste. Each fires its own renderer-side handler that
+  // chooses between the app's annotation clipboard (or PDF text selection)
+  // and the native browser clipboard, based on what's currently in focus.
   useEffect(() => {
-    return window.pdf.onMenu('copy', () => void copyTextSelection())
+    const offs = [
+      window.pdf.onMenu('copy', () => void copyTextSelection()),
+      window.pdf.onMenu('cut', () => {
+        const s = useStore.getState()
+        const a = document.activeElement as HTMLElement | null
+        const tag = a?.tagName
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || a?.isContentEditable) {
+          document.execCommand('cut')
+          return
+        }
+        if (s.selectedAnnotation) {
+          s.cutAnnotation(s.selectedAnnotation.page, s.selectedAnnotation.id)
+        }
+      }),
+      window.pdf.onMenu('paste', () => {
+        const s = useStore.getState()
+        const a = document.activeElement as HTMLElement | null
+        const tag = a?.tagName
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || a?.isContentEditable) {
+          document.execCommand('paste')
+          return
+        }
+        if (s.clipboard) {
+          // No specific click point for keyboard paste — drop at the centre
+          // of the current page. Right-click → Paste still uses the cursor
+          // point for precise placement.
+          const vp = s.pages[s.currentPage]
+          if (!vp) return
+          const sz = s.sourceSize(vp.sourceId, vp.sourceIndex)
+          s.pasteAnnotation(s.currentPage, sz.width / 2, sz.height / 2)
+        }
+      })
+    ]
+    return () => offs.forEach((off) => off())
   }, [])
 
   // Menu-driven page/edit ops. These all read state fresh from the store, so
@@ -52,26 +87,38 @@ export function App(): JSX.Element {
   useEffect(() => {
     const push = (): void => {
       const s = useStore.getState()
+      // Editable native focus: real INPUT / TEXTAREA elements, OR any
+      // contentEditable surface (NOT FormLayer — keystrokes there go to
+      // PDFium, not the browser clipboard).
+      const a = document.activeElement as HTMLElement | null
+      const tag = a?.tagName
+      const hasInputFocus =
+        tag === 'INPUT' ||
+        tag === 'TEXTAREA' ||
+        (!!a?.isContentEditable && !a.classList.contains('form-layer'))
       window.pdf.setMenuState({
         hasDoc: !!s.doc,
         dirty: !pagesEqual(s.pages, s.savedPages) || s.formDirty,
         canUndo: s.undoStack.length > 0,
         canRedo: s.redoStack.length > 0,
-        hasSelection: s.selection.size > 0
+        hasSelection: s.selection.size > 0,
+        hasTextSelection: !!s.textSelection,
+        hasAnnotationSelection: !!s.selectedAnnotation,
+        hasClipboard: !!s.clipboard,
+        hasInputFocus
       })
     }
     push() // initial state on first mount
-    return useStore.subscribe(push)
-  }, [])
-
-  // Mirror text-selection presence into main so the context menu can grey out
-  // "Copy" when there's nothing to copy.
-  useEffect(() => {
-    return useStore.subscribe((state, prev) => {
-      const has = !!state.textSelection
-      const prevHas = !!prev.textSelection
-      if (has !== prevHas) window.pdf.setHasTextSelection(has)
-    })
+    const unsub = useStore.subscribe(push)
+    // Focus changes don't go through Zustand, so listen at the DOM level.
+    const onFocus = (): void => push()
+    document.addEventListener('focusin', onFocus, true)
+    document.addEventListener('focusout', onFocus, true)
+    return () => {
+      unsub()
+      document.removeEventListener('focusin', onFocus, true)
+      document.removeEventListener('focusout', onFocus, true)
+    }
   }, [])
 
   // Window-level drag-and-drop. preventDefault on dragover is required for drop

@@ -5,13 +5,8 @@ import { basename, join } from 'node:path'
 const windowsByPath = new Map<string, BrowserWindow>()
 const blankWindows = new Set<BrowserWindow>()
 const dirtyByWindow = new WeakMap<BrowserWindow, boolean>()
-const hasTextSelByWindow = new WeakMap<BrowserWindow, boolean>()
 /** Windows currently allowed to close without re-prompting (we said OK once). */
 const closingApproved = new WeakSet<BrowserWindow>()
-
-export function setWindowHasTextSelection(win: BrowserWindow, has: boolean): void {
-  hasTextSelByWindow.set(win, has)
-}
 
 export function setWindowDirty(win: BrowserWindow, dirty: boolean): void {
   dirtyByWindow.set(win, dirty)

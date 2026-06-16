@@ -11,7 +11,19 @@ export interface MenuState {
   dirty: boolean
   canUndo: boolean
   canRedo: boolean
+  /** Pages (thumbnails) selected. Drives "Delete Page(s)" and "Export
+   *  Selection As". Doesn't enable Cut/Copy/Paste — thumbnails aren't
+   *  clipboardable in this app. */
   hasSelection: boolean
+  /** PDF text selection live in the viewport — drives Copy enablement. */
+  hasTextSelection: boolean
+  /** An annotation is selected — drives Cut/Copy enablement. */
+  hasAnnotationSelection: boolean
+  /** Our in-app annotation clipboard has content — drives Paste. */
+  hasClipboard: boolean
+  /** Focus is on a native text input (search bar, note editor, etc.) so
+   *  Cut/Copy/Paste should pass through to the browser. */
+  hasInputFocus: boolean
 }
 
 let state: MenuState = {
@@ -19,7 +31,11 @@ let state: MenuState = {
   dirty: false,
   canUndo: false,
   canRedo: false,
-  hasSelection: false
+  hasSelection: false,
+  hasTextSelection: false,
+  hasAnnotationSelection: false,
+  hasClipboard: false,
+  hasInputFocus: false
 }
 
 function send(channel: string): void {
@@ -44,7 +60,11 @@ export function setMenuState(patch: Partial<MenuState>): void {
     next.dirty === state.dirty &&
     next.canUndo === state.canUndo &&
     next.canRedo === state.canRedo &&
-    next.hasSelection === state.hasSelection
+    next.hasSelection === state.hasSelection &&
+    next.hasTextSelection === state.hasTextSelection &&
+    next.hasAnnotationSelection === state.hasAnnotationSelection &&
+    next.hasClipboard === state.hasClipboard &&
+    next.hasInputFocus === state.hasInputFocus
   ) {
     return
   }
@@ -53,7 +73,20 @@ export function setMenuState(patch: Partial<MenuState>): void {
 }
 
 export function buildMenu(): void {
-  const { hasDoc, dirty, canUndo, canRedo, hasSelection } = state
+  const {
+    hasDoc,
+    dirty,
+    canUndo,
+    canRedo,
+    hasSelection,
+    hasTextSelection,
+    hasAnnotationSelection,
+    hasClipboard,
+    hasInputFocus
+  } = state
+  const canCut = hasInputFocus || hasAnnotationSelection
+  const canCopy = hasInputFocus || hasTextSelection || hasAnnotationSelection
+  const canPaste = hasInputFocus || hasClipboard
   const template: Electron.MenuItemConstructorOptions[] = [
     {
       label: 'File',
@@ -113,15 +146,26 @@ export function buildMenu(): void {
           click: () => send('menu:redo')
         },
         { type: 'separator' },
-        { role: 'cut' },
+        {
+          label: 'Cut',
+          accelerator: 'CmdOrCtrl+X',
+          enabled: canCut,
+          click: () => send('menu:cut')
+        },
         {
           // Custom so we can copy PDF text selection too; renderer decides
           // whether to copy our own selection or fall through to execCommand.
           label: 'Copy',
           accelerator: 'CmdOrCtrl+C',
+          enabled: canCopy,
           click: () => send('menu:copy')
         },
-        { role: 'paste' },
+        {
+          label: 'Paste',
+          accelerator: 'CmdOrCtrl+V',
+          enabled: canPaste,
+          click: () => send('menu:paste')
+        },
         { role: 'selectAll' }
       ]
     },
