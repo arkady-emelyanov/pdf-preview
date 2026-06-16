@@ -218,17 +218,6 @@ export function buildMenu(): void {
           click: showAboutDialog
         }
       ]
-    },
-    // Invisible — hosts the SPEC's hidden DevTools / reload accelerators so
-    // they remain bound even though we no longer show a View menu.
-    {
-      label: 'View',
-      visible: false,
-      submenu: [
-        { role: 'togglefullscreen' },
-        { role: 'reload', accelerator: 'CmdOrCtrl+R' },
-        { role: 'toggleDevTools', accelerator: 'CmdOrCtrl+Shift+I' }
-      ]
     }
   ]
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
