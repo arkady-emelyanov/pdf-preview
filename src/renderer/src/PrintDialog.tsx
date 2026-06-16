@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from './store'
 import { rotatedSize } from '../../shared/edit'
 import type {
-  JobState,
   PrintJob,
   PrinterInfo,
   PrinterOption
@@ -238,8 +237,6 @@ export function PrintDialog({ open, onClose }: Props): JSX.Element | null {
   const [customScale, setCustomScale] = useState(100)
 
   const [busy, setBusy] = useState(false)
-  const [jobId, setJobId] = useState<string | null>(null)
-  const [jobState, setJobState] = useState<JobState | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [previewIdx, setPreviewIdx] = useState(0)
 
@@ -250,8 +247,6 @@ export function PrintDialog({ open, onClose }: Props): JSX.Element | null {
     if (!open) return
     let cancelled = false
     setError(null)
-    setJobId(null)
-    setJobState(null)
     window.pdf.listPrinters().then((list) => {
       if (cancelled) return
       setPrinters(list)
@@ -302,27 +297,6 @@ export function PrintDialog({ open, onClose }: Props): JSX.Element | null {
     return () => window.removeEventListener('keydown', onKey)
   }, [open, busy, onClose])
 
-  // Poll job status while a job is active.
-  useEffect(() => {
-    if (!jobId) return
-    let cancelled = false
-    const tick = async (): Promise<void> => {
-      while (!cancelled) {
-        const s = await window.pdf.jobStatus(jobId)
-        if (cancelled) return
-        setJobState(s.state)
-        if (s.state === 'done' || s.state === 'cancelled' || s.state === 'error') {
-          return
-        }
-        await new Promise((r) => setTimeout(r, 1500))
-      }
-    }
-    void tick()
-    return () => {
-      cancelled = true
-    }
-  }, [jobId])
-
   const selectedPages = useMemo(
     () => selectPages(pages, range, customSpec, subset, currentPage),
     [pages, range, customSpec, subset, currentPage]
@@ -371,18 +345,11 @@ export function PrintDialog({ open, onClose }: Props): JSX.Element | null {
       if (!res.ok) {
         setError(res.error ?? 'Print failed')
       } else {
-        setJobId(res.jobId ?? '')
-        setJobState('pending')
+        onClose()
       }
     } finally {
       setBusy(false)
     }
-  }
-
-  const cancel = async (): Promise<void> => {
-    if (jobId) await window.pdf.cancelJob(jobId)
-    setJobId(null)
-    setJobState(null)
   }
 
   if (!open) return null
@@ -623,21 +590,6 @@ export function PrintDialog({ open, onClose }: Props): JSX.Element | null {
         </div>
 
         {error && <div className="row error">{error}</div>}
-
-        {jobId !== null && (
-          <div className="row meta">
-            {jobId ? `Job ${jobId}` : 'Sent to printer'}
-            {jobState ? ` · ${jobState}` : ''}
-            {jobId && jobState !== 'done' && jobState !== 'cancelled' && (
-              <button
-                style={{ marginLeft: 8 }}
-                onClick={() => void cancel()}
-              >
-                Cancel job
-              </button>
-            )}
-          </div>
-        )}
 
         <div className="row buttons">
           <span className="meta">
