@@ -1,0 +1,41 @@
+name: Build AppImage and attach to release
+
+on:
+  release:
+    types: [published]
+
+# Needed so `gh release upload` can write the asset back to the release.
+permissions:
+  contents: write
+
+jobs:
+  appimage:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout the released tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Sync version to the release tag
+        run: |
+          VER="${{ github.event.release.tag_name }}"
+          VER="${VER#v}"   # strip leading v: v0.2.0 -> 0.2.0
+          npm version "$VER" --no-git-tag-version --allow-same-version
+
+      - name: Build the AppImage
+        run: npm run build:appimage
+
+      - name: Attach the AppImage to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "${{ github.event.release.tag_name }}" release/*.AppImage --clobber
