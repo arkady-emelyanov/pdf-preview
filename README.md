@@ -1,7 +1,6 @@
 # pdf-preview
 
-A fast, native-feeling PDF viewer and editor for Linux — the macOS-Preview
-experience, in an AppImage.
+A fast, native-feeling PDF viewer and editor for Linux — the macOS-Preview experience, in an AppImage.
 
 Inspired by Apple's Preview. Made for Linux.
 
@@ -18,33 +17,24 @@ Inspired by Apple's Preview. Made for Linux.
 
 ## Install
 
-Grab the latest `pdf-preview-*.AppImage` from
-[Releases](../../releases), then:
+Grab the latest `pdf-preview-*.AppImage` from [Releases](../../releases), then:
 
 ```sh
 chmod +x pdf-preview-*.AppImage
 ./pdf-preview-*.AppImage
 ```
 
-On first launch the app installs a `.desktop` entry and an icon under
-`~/.local/share/`, so it shows up in your application launcher and in the
-file manager's "Open with" menu — without touching your existing default PDF
-handler. A one-time dialog asks if you'd like it to be the default; you can
-say "Later" or "Don't show this again" and revisit through Help → Make
-Default PDF Viewer…
+On first launch the app installs a `.desktop` entry and an icon under `~/.local/share/`, so it shows up in your application launcher and in the file manager's "Open with" menu — without touching your existing default PDF handler. A one-time dialog asks if you'd like it to be the default; you can say "Later" or "Don't show this again" and revisit through Help → Make Default PDF Viewer…
 
 ### Better font rendering
 
-PDFs that reference Microsoft Core Fonts without embedding them (CID
-Identity-H with no ToUnicode) only render correctly when those fonts are
-installed locally. On Debian / Ubuntu:
+PDFs that reference Microsoft Core Fonts without embedding them (CID Identity-H with no ToUnicode) only render correctly when those fonts are installed locally. On Debian / Ubuntu:
 
 ```sh
 sudo apt install ttf-mscorefonts-installer
 ```
 
-Without this, those documents fall back to substitute fonts and glyphs may
-look wrong.
+Without this, those documents fall back to substitute fonts and glyphs may look wrong.
 
 ## Keyboard shortcuts
 
@@ -80,11 +70,8 @@ Requires Node 20+. Built with TypeScript, React, Zustand, and Electron 32.
 - No cryptographic signatures (PAdES/CMS).
 - No freehand ink, highlight, underline, or strikethrough annotations.
 - No OCR or scanning.
-- XFA forms render as static appearances; values can't round-trip back to the
-  file. Most form PDFs are AcroForm and work fine.
-- Editing page order, rotation, or annotations on a form-filled PDF drops form
-  values entered in this session: the save path switches to pdf-lib, which
-  discards the AcroForm dict.
+- XFA forms render as static appearances; values can't round-trip back to the file. Most form PDFs are AcroForm and work fine.
+- Editing page order, rotation, or annotations on a form-filled PDF drops form values entered in this session: the save path switches to pdf-lib, which discards the AcroForm dict.
 
 ## License
 
