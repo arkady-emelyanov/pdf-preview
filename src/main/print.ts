@@ -15,10 +15,20 @@ import { saveDoc } from './save'
 
 /** Run a command and capture stdout. Resolves with stdout (trimmed) on exit 0,
  *  rejects with stderr otherwise. We don't shell-interpolate anywhere — args
- *  go straight to spawn — so command-injection is not a concern. */
+ *  go straight to spawn — so command-injection is not a concern.
+ *
+ *  We force `LC_ALL=C` so the CUPS tools (`lpstat`, `lp`, `lpoptions`, `cancel`)
+ *  emit their English output regardless of the user's locale. Without this,
+ *  a user with `LANG=es_ES.UTF-8` gets translations like "aceptando trabajos"
+ *  instead of "accepting requests", and our regex-based parsers silently miss
+ *  every match. The `LANG=C` belt-and-braces guards against tools that only
+ *  consult `LANG` for some message catalogs. */
 function run(cmd: string, args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {
-    const child = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'] })
+    const child = spawn(cmd, args, {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: { ...process.env, LC_ALL: 'C', LANG: 'C' }
+    })
     let out = ''
     let err = ''
     child.stdout.on('data', (b) => (out += b.toString()))

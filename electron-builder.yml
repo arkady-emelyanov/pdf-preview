@@ -1,11 +1,14 @@
-appId: org.previewlinux.app
-productName: Preview
+appId: org.pdfpreview.app
+productName: pdf-preview
 directories:
   output: release
   buildResources: resources
 files:
   - out/**/*
   - package.json
+extraResources:
+  - from: resources/icon.png
+    to: icon.png
 linux:
   target:
     - target: AppImage
@@ -14,6 +17,6 @@ linux:
   mimeTypes:
     - application/pdf
   desktop:
-    Name: Preview
+    Name: pdf-preview
     Comment: View and edit PDF files
     Categories: Office;Viewer;

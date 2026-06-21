@@ -62,7 +62,7 @@ export function useKeyboardShortcuts(): void {
 
       if (!inField && mod && e.key.toLowerCase() === 'f') {
         e.preventDefault()
-        s.openSearch()
+        if (doc) s.openSearch()
         return
       }
 

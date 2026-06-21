@@ -58,6 +58,8 @@ export interface DocInfo {
   name: string
   /** Primary source — always present. Additional sources may be registered later. */
   primary: SourceInfo
+  /** Best-guess author string stamped on new annotations (git user.name, else $USER). */
+  author: string
 }
 
 export interface RenderedPageMsg {

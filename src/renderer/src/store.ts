@@ -400,8 +400,12 @@ export const useStore = create<State>((set, get) => ({
   addAnnotation: (page, a) => {
     const s = get()
     if (page < 0 || page >= s.pages.length) return
+    // Stamp the author from the doc unless one was already provided (e.g. by
+    // paste, where we carry the original author across).
+    const author = s.doc?.author
+    const stamped = !a.author && author ? ({ ...a, author } as Annotation) : a
     const next = s.pages.map((vp, i) =>
-      i === page ? { ...vp, annotations: addAnnFn(vp.annotations, a) } : vp
+      i === page ? { ...vp, annotations: addAnnFn(vp.annotations, stamped) } : vp
     )
     const undoStack = pushUndo(s.undoStack, s.pages)
     set({

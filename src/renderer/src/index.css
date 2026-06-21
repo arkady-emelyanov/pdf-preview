@@ -50,9 +50,20 @@ html, body, #root {
   cursor: pointer;
   font-size: 13px;
 }
-.toolbar button:hover,
-.toolbar .icon-btn:hover { background: #3c3c3c; }
+.toolbar button:hover:not(:disabled),
+.toolbar .icon-btn:hover:not(:disabled) { background: #3c3c3c; }
 .toolbar .icon-btn[aria-pressed='true'] { background: #4a6; border-color: #5c8; }
+.toolbar button:disabled,
+.toolbar .icon-btn:disabled,
+.toolbar button[disabled],
+.toolbar .icon-btn[disabled] {
+  opacity: 0.35;
+  cursor: not-allowed;
+  background: #2a2a2a !important;
+  color: #777 !important;
+  border-color: #383838 !important;
+  filter: grayscale(1);
+}
 
 .toolbar .page-input {
   width: 48px;

@@ -3,6 +3,8 @@ import { existsSync } from 'node:fs'
 import { basename } from 'node:path'
 import { focusOrCreate } from './windows'
 import { clearRecents, getRecents, removeRecent } from './recents'
+import { getLastOpenDir } from './appState'
+import { shouldOfferMakeDefault, showDefaultPrompt } from './defaultHandler'
 
 /**
  * Application-menu state pushed from the renderer via `pdf:setMenuState`.
@@ -47,10 +49,17 @@ function send(channel: string): void {
 }
 
 export async function showOpenDialog(parent?: BrowserWindow): Promise<void> {
-  const res = await dialog.showOpenDialog(parent ?? (undefined as never), {
+  const opts = {
+    defaultPath: getLastOpenDir(),
     filters: [{ name: 'PDF', extensions: ['pdf'] }],
-    properties: ['openFile']
-  })
+    properties: ['openFile' as const]
+  }
+  // Use the single-arg overload when there's no parent — `(undefined, opts)`
+  // hits the (window, options) overload, which on Linux can silently drop
+  // `defaultPath`.
+  const res = parent
+    ? await dialog.showOpenDialog(parent, opts)
+    : await dialog.showOpenDialog(opts)
   if (!res.canceled && res.filePaths[0]) focusOrCreate(res.filePaths[0])
 }
 
@@ -117,6 +126,16 @@ export function buildMenu(): void {
           label: 'Export Selection As…',
           enabled: hasDoc && hasSelection,
           click: () => send('menu:extractSelection')
+        },
+        {
+          label: 'Export Flattened Copy…',
+          enabled: hasDoc,
+          click: () => send('menu:exportFlattened')
+        },
+        {
+          label: 'Export Pages as Images…',
+          enabled: hasDoc,
+          click: () => send('menu:exportImages')
         },
         { type: 'separator' },
         {
@@ -217,6 +236,18 @@ export function buildMenu(): void {
     {
       label: 'Help',
       submenu: [
+        ...(shouldOfferMakeDefault()
+          ? [
+              {
+                label: 'Make Default PDF Viewer…',
+                click: async (_item: Electron.MenuItem, win?: BrowserWindow) => {
+                  const r = await showDefaultPrompt(win)
+                  if (r.changed) buildMenu()
+                }
+              } as Electron.MenuItemConstructorOptions,
+              { type: 'separator' as const }
+            ]
+          : []),
         {
           label: `About ${app.name}`,
           click: showAboutDialog

@@ -1,6 +1,43 @@
 import { app, ipcMain, BrowserWindow } from 'electron'
 import { readFile } from 'node:fs/promises'
-import { basename } from 'node:path'
+import { mkdirSync } from 'node:fs'
+import { basename, join } from 'node:path'
+import { homedir } from 'node:os'
+
+
+// Pin our config under XDG-style ~/.config/pdf-preview regardless of the
+// productName Electron would otherwise derive ("Preview"). Must run before
+// anything reads userData (recents, window state, etc.). Some Electron
+// versions silently no-op setPath if the target directory doesn't exist, so
+// mkdir first.
+const userDataDir = join(process.env['XDG_CONFIG_HOME'] || join(homedir(), '.config'), 'pdf-preview')
+try {
+  mkdirSync(userDataDir, { recursive: true })
+} catch {
+  // best-effort — setPath below may still succeed
+}
+app.setPath('userData', userDataDir)
+
+// Lock the X11/Wayland WM class to "pdf-preview" so docks (Plank, KDE,
+// gnome-shell) can match the running window against our installed .desktop's
+// StartupWMClass. Without this, Chromium derives the class from the binary
+// name ("preview-linux" via package.json), which we'd otherwise have to
+// rename to keep the two ends in sync.
+app.commandLine.appendSwitch('class', 'pdf-preview')
+
+// Force the GTK file-chooser instead of routing through xdg-desktop-portal.
+// The portal's OpenFile method has no "default folder" field, so Chromium's
+// `defaultPath` is silently dropped under GNOME / KDE / Plasma. Multiple
+// belt-and-braces switches because Chromium's portal selection logic has
+// changed across versions:
+//   - --xdg-portal-required-version=999 tells Chromium no installed portal
+//     meets our needs, so it falls back to the native GTK file chooser.
+//   - --gtk-version=3 picks GTK3's chooser (doesn't use portal at all).
+//   - --enable-features=GtkUi keeps the GTK file picker enabled even on
+//     Wayland/Ozone where Chromium would otherwise prefer the portal.
+app.commandLine.appendSwitch('xdg-portal-required-version', '999')
+app.commandLine.appendSwitch('gtk-version', '3')
+app.commandLine.appendSwitch('enable-features', 'GtkUi')
 import { dialog } from 'electron'
 import {
   focusOrCreate,
@@ -30,6 +67,7 @@ import {
 import type { FormEvent } from '../shared/ipc'
 import type { VirtualPage as VP } from '../shared/edit'
 import { saveDoc } from './save'
+import { exportPagesAsImages } from './exportImages'
 import {
   cancelJob as printCancelJob,
   getJobStatus as printGetJobStatus,
@@ -38,6 +76,10 @@ import {
   print as printJob
 } from './print'
 import { loadAnnotations } from './loadAnnotations'
+import { getAuthor } from './author'
+import { registerMimeAssociation } from './mime'
+import { getLastOpenDir } from './appState'
+import { maybePromptOnStartup } from './defaultHandler'
 import type { VirtualPage } from '../shared/edit'
 
 function canonical(p: string): string {
@@ -71,6 +113,7 @@ if (!app.requestSingleInstanceLock()) {
 app.whenReady().then(() => {
   buildMenu()
   onRecentsChanged(() => buildMenu())
+  void registerMimeAssociation()
 
   ipcMain.handle('pdf:open', async (evt) => {
     const win = BrowserWindow.fromWebContents(evt.sender)
@@ -86,6 +129,7 @@ app.whenReady().then(() => {
       id: path,
       path,
       name: basename(path),
+      author: getAuthor(),
       primary: {
         sourceId: path,
         name: basename(path),
@@ -130,6 +174,7 @@ app.whenReady().then(() => {
     const win = BrowserWindow.fromWebContents(evt.sender) ?? undefined
     const res = await dialog.showOpenDialog(win as BrowserWindow, {
       title: multi ? 'Choose PDFs' : 'Choose a PDF',
+      defaultPath: getLastOpenDir(),
       filters: [{ name: 'PDF', extensions: ['pdf'] }],
       properties: multi ? ['openFile', 'multiSelections'] : ['openFile']
     })
@@ -237,6 +282,61 @@ app.whenReady().then(() => {
     }
   )
 
+  ipcMain.handle(
+    'pdf:exportFlattened',
+    async (
+      evt,
+      sources: Record<string, string>,
+      pages: VirtualPage[],
+      defaultName: string
+    ): Promise<{ ok: true; path: string } | { ok: false; error?: string }> => {
+      const win = BrowserWindow.fromWebContents(evt.sender)
+      if (!win) return { ok: false, error: 'no window' }
+      const res = await dialog.showSaveDialog(win, {
+        title: 'Export Flattened Copy',
+        defaultPath: defaultName,
+        filters: [{ name: 'PDF', extensions: ['pdf'] }]
+      })
+      if (res.canceled || !res.filePath) return { ok: false }
+      const dest = res.filePath.toLowerCase().endsWith('.pdf')
+        ? res.filePath
+        : `${res.filePath}.pdf`
+      try {
+        // Always go through pdf-lib so form.flatten() actually runs. The
+        // PDFium fast-path would preserve interactivity, which is the
+        // opposite of what "flatten" means.
+        await saveDoc(sources, dest, pages, { flattenForms: true })
+        return { ok: true, path: dest }
+      } catch (e) {
+        return { ok: false, error: String((e as Error).message ?? e) }
+      }
+    }
+  )
+
+  ipcMain.handle(
+    'pdf:exportImages',
+    async (
+      evt,
+      pages: VirtualPage[],
+      defaultBaseName: string
+    ): Promise<{ ok: true; dir: string; count: number } | { ok: false; error?: string }> => {
+      const win = BrowserWindow.fromWebContents(evt.sender)
+      if (!win) return { ok: false, error: 'no window' }
+      const res = await dialog.showOpenDialog(win, {
+        title: 'Export Pages as Images',
+        properties: ['openDirectory', 'createDirectory'],
+        buttonLabel: 'Export'
+      })
+      if (res.canceled || !res.filePaths[0]) return { ok: false }
+      try {
+        await exportPagesAsImages(pages, res.filePaths[0], defaultBaseName)
+        return { ok: true, dir: res.filePaths[0], count: pages.length }
+      } catch (e) {
+        return { ok: false, error: String((e as Error).message ?? e) }
+      }
+    }
+  )
+
   ipcMain.handle('pdf:rebindPath', async (evt, newPath: string) => {
     const win = BrowserWindow.fromWebContents(evt.sender)
     if (!win) return null
@@ -299,6 +399,17 @@ app.whenReady().then(() => {
 
   if (initialFiles.length) initialFiles.forEach(focusOrCreate)
   else createBlankWindow()
+
+  // Wait until mime.ts has had a chance to install the .desktop so xdg-mime
+  // has a target it'll accept, then ask. Best-effort — if mime registration
+  // hasn't run (dev, sandbox, no $APPIMAGE), the prompt no-ops via the
+  // `isPackaged` guard inside.
+  setTimeout(() => {
+    const parent = BrowserWindow.getFocusedWindow() ?? undefined
+    void maybePromptOnStartup(parent).then((r) => {
+      if (r.changed) buildMenu()
+    })
+  }, 1500)
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createBlankWindow()

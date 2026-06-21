@@ -1,7 +1,8 @@
-import { BrowserWindow, Menu, dialog, shell } from 'electron'
-import { realpathSync } from 'node:fs'
+import { app, BrowserWindow, Menu, dialog, shell } from 'electron'
+import { existsSync, realpathSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { pushRecent } from './recents'
+import { getInitialWindowState, rememberOpenedPath, trackWindow } from './appState'
 
 const windowsByPath = new Map<string, BrowserWindow>()
 const blankWindows = new Set<BrowserWindow>()
@@ -39,6 +40,21 @@ export function rebindWindowPath(win: BrowserWindow, newPath: string): void {
   windowsByPath.set(key, win)
   win.setTitle(basename(key))
   pushRecent(key)
+  rememberOpenedPath(key)
+}
+
+/**
+ * Locate the bundled app icon for use as BrowserWindow `icon:` (Linux WMs
+ * use this for the taskbar entry). Packaged → `<resourcesPath>/icon.png`
+ * (electron-builder copies it there via extraResources). Dev → the source
+ * file in the project tree, resolved relative to `out/main/`.
+ */
+function iconPath(): string | undefined {
+  const candidates = app.isPackaged
+    ? [join(process.resourcesPath, 'icon.png')]
+    : [join(__dirname, '../../resources/icon.png'), join(process.cwd(), 'resources/icon.png')]
+  for (const c of candidates) if (existsSync(c)) return c
+  return undefined
 }
 
 function canonical(path: string): string {
@@ -50,10 +66,15 @@ function canonical(path: string): string {
 }
 
 function buildWindow(title: string): BrowserWindow {
+  const state = getInitialWindowState()
+  const icon = iconPath()
   const win = new BrowserWindow({
-    width: 1200,
-    height: 800,
+    x: state.x,
+    y: state.y,
+    width: state.width,
+    height: state.height,
     title,
+    icon,
     show: false,
     autoHideMenuBar: false,
     webPreferences: {
@@ -64,11 +85,16 @@ function buildWindow(title: string): BrowserWindow {
     }
   })
 
-  win.once('ready-to-show', () => win.show())
+  win.once('ready-to-show', () => {
+    if (state.maximized) win.maximize()
+    win.show()
+  })
 
-  // Block the renderer HTML's <title>Preview</title> from overriding the
+  trackWindow(win)
+
+  // Block the renderer HTML's <title>pdf-preview</title> from overriding the
   // window title we just set via bindPath. Without this, a second
-  // window's "File2.pdf" title gets clobbered to "Preview" the instant the
+  // window's "File2.pdf" title gets clobbered to "pdf-preview" the instant the
   // page finishes loading (the first window doesn't show the bug because
   // bindPath runs after its initial load).
   win.on('page-title-updated', (event) => event.preventDefault())
@@ -141,6 +167,7 @@ function bindPath(win: BrowserWindow, path: string): void {
   win.on('closed', () => windowsByPath.delete(path))
   win.webContents.send('pdf:docAssigned')
   pushRecent(path)
+  rememberOpenedPath(path)
 }
 
 export function focusOrCreate(path: string): BrowserWindow {
@@ -169,7 +196,7 @@ export function focusOrCreate(path: string): BrowserWindow {
 }
 
 export function createBlankWindow(): BrowserWindow {
-  const win = buildWindow('Preview')
+  const win = buildWindow('pdf-preview')
   blankWindows.add(win)
   win.on('closed', () => blankWindows.delete(win))
   return win

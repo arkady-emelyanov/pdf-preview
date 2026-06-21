@@ -51,6 +51,23 @@ function charIndexAt(chars: PageChars, cx: number, cy: number, scale: number): n
   return bestIdx
 }
 
+/**
+ * Expand `idx` to the surrounding whitespace-bounded word, returning
+ * `[wordStart, wordEnd]` (inclusive char indices). Punctuation is treated as
+ * part of the word, matching Acrobat / Preview's double-click behavior.
+ * Returns `null` if the clicked char is itself whitespace.
+ */
+function wordRangeAt(chars: PageChars, idx: number): [number, number] | null {
+  const text = chars.text
+  if (idx < 0 || idx >= text.length) return null
+  if (/\s/.test(text[idx])) return null
+  let lo = idx
+  while (lo > 0 && !/\s/.test(text[lo - 1])) lo--
+  let hi = idx
+  while (hi < text.length - 1 && !/\s/.test(text[hi + 1])) hi++
+  return [lo, hi]
+}
+
 /** Merge consecutive selected char rects into per-line spans. */
 function mergeLineSpans(chars: PageChars, start: number, end: number): PageRect[] {
   const lo = Math.min(start, end)
@@ -149,6 +166,21 @@ export function TextSelectionLayer({
     setDragging(false)
   }
 
+  const onDoubleClick = (e: React.MouseEvent): void => {
+    if (!active || !chars) return
+    const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect()
+    const cx = e.clientX - rect.left
+    const cy = e.clientY - rect.top
+    const idx = charIndexAt(chars, cx, cy, scale)
+    if (idx < 0) return
+    const range = wordRangeAt(chars, idx)
+    if (!range) return
+    // Cancel any drag that the second pointerdown left active so the next
+    // mouse-move doesn't extend the selection back to a single char.
+    setDragging(false)
+    setTextSelection({ page: virtualIndex, start: range[0], end: range[1] })
+  }
+
   const onContextMenu = (e: React.MouseEvent): void => {
     if (!hasSelectionHere) return
     e.preventDefault()
@@ -183,6 +215,7 @@ export function TextSelectionLayer({
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
+        onDoubleClick={onDoubleClick}
         onContextMenu={onContextMenu}
       >
         {spans.map((r, i) => (

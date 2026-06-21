@@ -25,6 +25,8 @@ export function Toolbar(): JSX.Element {
   const setScale = useStore((s) => s.setScale)
   const setZoomMode = useStore((s) => s.setZoomMode)
   const openSearch = useStore((s) => s.openSearch)
+  const closeSearch = useStore((s) => s.closeSearch)
+  const searchOpen = useStore((s) => s.searchOpen)
   const insertPages = useStore((s) => s.insertPages)
   const registerSource = useStore((s) => s.registerSource)
   const sourcePaths = useStore((s) => s.sourcePaths)
@@ -121,6 +123,29 @@ export function Toolbar(): JSX.Element {
     }
   }
 
+  const doExportFlattened = async (): Promise<void> => {
+    if (!doc || busy) return
+    setBusy(true)
+    try {
+      const def = `${basenameNoExt(doc.name)} flattened.pdf`
+      const res = await window.pdf.exportFlattened(sourcePaths(), pages, def)
+      if (res.ok === false && res.error) alert(`Export failed: ${res.error}`)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const doExportImages = async (): Promise<void> => {
+    if (!doc || busy) return
+    setBusy(true)
+    try {
+      const res = await window.pdf.exportImages(pages, basenameNoExt(doc.name))
+      if (res.ok === false && res.error) alert(`Export failed: ${res.error}`)
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const doMerge = async (): Promise<void> => {
     if (!doc || busy) return
     setBusy(true)
@@ -150,9 +175,20 @@ export function Toolbar(): JSX.Element {
     doExtract,
     doInsert,
     doMerge,
-    doSaveAndClose
+    doSaveAndClose,
+    doExportFlattened,
+    doExportImages
   })
-  handlersRef.current = { doSave, doSaveAs, doExtract, doInsert, doMerge, doSaveAndClose }
+  handlersRef.current = {
+    doSave,
+    doSaveAs,
+    doExtract,
+    doInsert,
+    doMerge,
+    doSaveAndClose,
+    doExportFlattened,
+    doExportImages
+  }
 
   useEffect(() => {
     const off1 = window.pdf.onMenu('save', () => void handlersRef.current.doSave())
@@ -173,6 +209,14 @@ export function Toolbar(): JSX.Element {
       'saveAndClose',
       () => void handlersRef.current.doSaveAndClose()
     )
+    const off7 = window.pdf.onMenu(
+      'exportFlattened',
+      () => void handlersRef.current.doExportFlattened()
+    )
+    const off8 = window.pdf.onMenu(
+      'exportImages',
+      () => void handlersRef.current.doExportImages()
+    )
     return () => {
       off1()
       off2()
@@ -180,6 +224,8 @@ export function Toolbar(): JSX.Element {
       off4()
       off5()
       off6()
+      off7()
+      off8()
     }
   }, [])
 
@@ -190,6 +236,7 @@ export function Toolbar(): JSX.Element {
         title="Toggle sidebar (Ctrl+L)"
         onClick={toggleSidebar}
         aria-pressed={sidebarOpen}
+        disabled={!doc}
       >
         ☰
       </button>
@@ -255,7 +302,13 @@ export function Toolbar(): JSX.Element {
 
       <div className="spacer" />
 
-      <button className="icon-btn" title="Find (Ctrl+F)" onClick={openSearch}>
+      <button
+        className="icon-btn"
+        title="Find (Ctrl+F)"
+        onClick={() => (searchOpen ? closeSearch() : openSearch())}
+        disabled={!doc}
+        aria-pressed={searchOpen}
+      >
         🔍
       </button>
 

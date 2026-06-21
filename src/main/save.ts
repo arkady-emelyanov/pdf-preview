@@ -38,7 +38,8 @@ import { PDFBool, PDFDict } from 'pdf-lib'
 export async function saveDoc(
   sources: Record<string, string>,
   destPath: string,
-  pages: VirtualPage[]
+  pages: VirtualPage[],
+  options: { flattenForms?: boolean } = {}
 ): Promise<void> {
   // Load each unique source once. Order doesn't matter; we'll look up by id.
   const uniqueIds = [...new Set(pages.map((p) => p.sourceId))]
@@ -93,6 +94,14 @@ export async function saveDoc(
       if (anns && anns.length > 0) writeAnnotations(out, page, anns)
     }
     i = j
+  }
+
+  if (options.flattenForms) {
+    try {
+      out.getForm().flatten()
+    } catch {
+      // No form, or pdf-lib couldn't flatten — exported file is still valid.
+    }
   }
 
   const outBytes = await out.save({ useObjectStreams: true })

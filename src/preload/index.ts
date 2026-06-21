@@ -31,6 +31,8 @@ type MenuChannel =
   | 'deletePages'
   | 'find'
   | 'print'
+  | 'exportFlattened'
+  | 'exportImages'
 
 interface MenuStatePatch {
   hasDoc?: boolean
@@ -95,6 +97,17 @@ const api = {
     defaultName: string
   ): Promise<{ ok: true; path: string } | { ok: false; error?: string }> =>
     ipcRenderer.invoke('pdf:saveAs', sources, pages, defaultName),
+  exportFlattened: (
+    sources: Record<string, string>,
+    pages: VirtualPage[],
+    defaultName: string
+  ): Promise<{ ok: true; path: string } | { ok: false; error?: string }> =>
+    ipcRenderer.invoke('pdf:exportFlattened', sources, pages, defaultName),
+  exportImages: (
+    pages: VirtualPage[],
+    defaultBaseName: string
+  ): Promise<{ ok: true; dir: string; count: number } | { ok: false; error?: string }> =>
+    ipcRenderer.invoke('pdf:exportImages', pages, defaultBaseName),
   listPrinters: (): Promise<PrinterInfo[]> => ipcRenderer.invoke('pdf:listPrinters'),
   printerOptions: (name: string): Promise<PrinterOption[]> =>
     ipcRenderer.invoke('pdf:printerOptions', name),
