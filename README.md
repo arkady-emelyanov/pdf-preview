@@ -6,6 +6,19 @@ experience, in an AppImage.
 No browser chrome. No cloud round-trip. No PDF you can't open. Just open
 the file, do the thing, save it. The whole UI is custom; we own every pixel.
 
+## Screenshots
+
+<p align="center">
+  <a href="resources/open.png">
+    <img src="resources/open.png" width="420" alt="A PDF open in pdf-preview, with the thumbnail rail and toolbar">
+  </a>
+  <a href="resources/empty.png">
+    <img src="resources/empty.png" width="420" alt="The pdf-preview welcome screen before a document is open">
+  </a>
+</p>
+
+<p align="center"><em>Click a screenshot to view it full size.</em></p>
+
 ## Install
 
 Grab the latest `pdf-preview-*.AppImage` from
