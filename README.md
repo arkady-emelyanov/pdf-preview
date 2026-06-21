@@ -6,45 +6,6 @@ experience, in an AppImage.
 No browser chrome. No cloud round-trip. No PDF you can't open. Just open
 the file, do the thing, save it. The whole UI is custom; we own every pixel.
 
-## What you get
-
-- **View** — continuous scroll, fit-width / fit-page / actual-size zoom, a
-  thumbnail rail that lazily renders only what's on screen, page-jump input,
-  outline bookmarks, full keyboard navigation.
-- **Find** — `Ctrl+F` with per-line highlight rects drawn from real PDFium
-  character boxes, not a JavaScript text-layer approximation.
-- **Select & copy text** — flip into the text tool with `T`, drag to select,
-  double-click for whole-word, `Ctrl+C`.
-- **Edit pages** — rotate, delete, drag to reorder, multi-select in the
-  thumbnail rail, Insert pages from another PDF, Merge multiple PDFs into
-  one window. Full undo/redo. Save / Save As / Export Selection As.
-- **Annotate** — rectangles, ovals, arrows, lines, sticky notes with a popover
-  editor, free-text boxes with font / size / color, free-angle rotation. All
-  written back as standard PDF annotation dicts (`/Square`, `/Circle`,
-  `/Line`, `/Text`, `/FreeText`) so Acrobat, Preview, and Okular open them
-  cleanly.
-- **Fill forms** — AcroForm round-trip via PDFium's FormFill engine; field
-  values persist across reopens in our app and in every other PDF viewer.
-- **Print** — custom CUPS-driven dialog with printer / copies / page range /
-  odd-even / capability-driven duplex + paper size + color, paper-sized live
-  preview, and a job-status footer with cancel.
-- **Export** — Export Flattened Copy (bakes form fields and annotations into
-  the page content) and Export Pages as Images (PNG per page).
-
-## Why another PDF viewer?
-
-Most Linux PDF options force a trade-off:
-
-- Browser viewers ship Chromium's PDF plugin and you can't suppress its
-  toolbar.
-- Lightweight viewers can't edit.
-- Heavy "PDF editors" want a subscription and don't feel like a Linux app.
-
-pdf-preview borrows what's right about macOS Preview — instant open, sane
-defaults, a thumbnail sidebar that's actually useful, page edits that survive
-a save — and ships it as a single self-contained AppImage that runs on any
-glibc-based distro.
-
 ## Install
 
 Grab the latest `pdf-preview-*.AppImage` from
