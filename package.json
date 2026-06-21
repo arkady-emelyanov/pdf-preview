@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "description": "Preview-style PDF viewer/editor for Linux",
   "main": "out/main/index.js",
-  "author": "",
+  "author": "Arkadii Emelianov",
   "license": "MIT",
   "private": true,
   "scripts": {

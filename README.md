@@ -3,8 +3,7 @@
 A fast, native-feeling PDF viewer and editor for Linux — the macOS-Preview
 experience, in an AppImage.
 
-No browser chrome. No cloud round-trip. No PDF you can't open. Just open
-the file, do the thing, save it. The whole UI is custom; we own every pixel.
+Inspired by Apple's Preview. Made for Linux.
 
 ## Screenshots
 
@@ -16,8 +15,6 @@ the file, do the thing, save it. The whole UI is custom; we own every pixel.
     <img src="resources/empty.png" width="420" alt="The pdf-preview welcome screen before a document is open">
   </a>
 </p>
-
-<p align="center"><em>Click a screenshot to view it full size.</em></p>
 
 ## Install
 
@@ -78,21 +75,19 @@ npm run build:appimage    # → release/pdf-preview-<ver>.AppImage
 
 Requires Node 20+. Built with TypeScript, React, Zustand, and Electron 32.
 
-## Limitations (be aware before you commit)
+## Limitations
 
-- No cryptographic signatures (PAdES/CMS) — out of scope for v1.
-- No freehand ink, highlight, underline, or strikethrough annotations yet.
+- No cryptographic signatures (PAdES/CMS).
+- No freehand ink, highlight, underline, or strikethrough annotations.
 - No OCR or scanning.
 - XFA forms render as static appearances; values can't round-trip back to the
-  file. (Acrobat XFA is a niche format — most "modern" PDFs are AcroForm and
-  do work.)
-- If you edit page order, rotate, or annotate a form-filled PDF, the
-  pdf-lib save pipeline takes over and form values entered in this session
-  aren't preserved (the AcroForm dict gets dropped). A future revision will
-  layer pdf-lib edits on top of the PDFium-saved bytes.
+  file. Most form PDFs are AcroForm and work fine.
+- Editing page order, rotation, or annotations on a form-filled PDF drops form
+  values entered in this session: the save path switches to pdf-lib, which
+  discards the AcroForm dict.
 
 ## License
 
 MIT. Built on PDFium (BSD), pdf-lib (MIT), Electron, React, and Zustand.
 
-Inspired by Apple's Preview. Made for Linux.
+Built with ❤️ using [Claude Code](https://claude.com/claude-code).
