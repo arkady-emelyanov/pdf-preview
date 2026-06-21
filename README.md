@@ -8,10 +8,7 @@ Inspired by Apple's Preview. Made for Linux.
 
 <p align="center">
   <a href="resources/open.png">
-    <img src="resources/open.png" width="420" alt="A PDF open in pdf-preview, with the thumbnail rail and toolbar">
-  </a>
-  <a href="resources/empty.png">
-    <img src="resources/empty.png" width="420" alt="The pdf-preview welcome screen before a document is open">
+    <img src="resources/open.png" width="900" alt="A PDF open in pdf-preview, with the thumbnail rail and toolbar">
   </a>
 </p>
 
