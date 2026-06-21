@@ -1,6 +1,6 @@
 import { app } from 'electron'
 import { execFile } from 'node:child_process'
-import { copyFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
@@ -13,15 +13,21 @@ function run(cmd: string, args: string[]): Promise<void> {
   })
 }
 
+// Use %f so xdg-open passes the file path as a single argument. AppImages get
+// a fresh mountpoint each launch, but $APPIMAGE is the stable on-disk path, so
+// this is what we bake in — and what we reconcile against when it moves.
+function execLine(appImagePath: string): string {
+  return `Exec="${appImagePath}" %f`
+}
+
 function desktopBody(appImagePath: string, iconName: string): string {
-  // Use %f so xdg-open passes the file path as a single argument.
   return [
     '[Desktop Entry]',
     'Type=Application',
     'Name=pdf-preview',
     'GenericName=PDF Viewer',
     'Comment=View and edit PDF files',
-    `Exec="${appImagePath}" %f`,
+    execLine(appImagePath),
     `Icon=${iconName}`,
     'Terminal=false',
     'Categories=Office;Viewer;',
@@ -29,6 +35,22 @@ function desktopBody(appImagePath: string, iconName: string): string {
     'StartupWMClass=pdf-preview',
     ''
   ].join('\n')
+}
+
+/**
+ * True when the installed .desktop exists and its Exec= already points at the
+ * current AppImage. False when it's missing, unreadable, or stale (the user
+ * moved the binary) — in which case we rewrite it.
+ */
+function desktopIsCurrent(desktopPath: string, appImagePath: string): boolean {
+  try {
+    const want = execLine(appImagePath)
+    return readFileSync(desktopPath, 'utf8')
+      .split('\n')
+      .some((l) => l === want)
+  } catch {
+    return false
+  }
 }
 
 /**
@@ -54,27 +76,35 @@ function installIcon(): string {
 }
 
 /**
- * Best-effort first-run handler-registration so opening a PDF in the file
- * manager launches us. Runs only:
- *  - when the binary is packaged (AppImage), and
- *  - when we haven't registered before (idempotent via a flag in userData).
+ * Best-effort handler-registration so opening a PDF in the file manager
+ * launches us. Runs only when packaged (AppImage). On first run it writes the
+ * .desktop and refreshes the desktop/icon caches (idempotent via a flag in
+ * userData). On every subsequent run it reconciles the .desktop's Exec= against
+ * the current $APPIMAGE and rewrites it if the binary has moved — so the
+ * association self-heals instead of silently pointing at a path that no longer
+ * exists.
  *
- * Every step is fire-and-forget; if xdg-mime or update-desktop-database isn't
- * installed we silently skip — the user can still launch us by hand.
+ * Every step is fire-and-forget; if update-desktop-database isn't installed we
+ * silently skip — the user can still launch us by hand. We deliberately never
+ * touch the user's default-handler choice here (the .desktop filename is
+ * stable, so an existing default keeps resolving once Exec= is fixed).
  */
 export async function registerMimeAssociation(): Promise<void> {
   if (!app.isPackaged) return
   const appImage = process.env['APPIMAGE']
   if (!appImage || !existsSync(appImage)) return
 
-  const flagPath = join(app.getPath('userData'), STATE_FLAG)
-  if (existsSync(flagPath)) return
-
   const appsDir = join(
     process.env['XDG_DATA_HOME'] || join(homedir(), '.local', 'share'),
     'applications'
   )
   const desktopPath = join(appsDir, DESKTOP_FILE_NAME)
+  const flagPath = join(app.getPath('userData'), STATE_FLAG)
+  const firstRun = !existsSync(flagPath)
+
+  // Already registered and the Exec= still points at us — nothing to do.
+  if (!firstRun && desktopIsCurrent(desktopPath, appImage)) return
+
   const iconName = installIcon()
   try {
     mkdirSync(appsDir, { recursive: true })

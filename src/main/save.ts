@@ -18,12 +18,14 @@ import {
   FREETEXT_LINE_HEIGHT,
   NOTE_SIZE_PT,
   OWN_NM_PREFIX,
+  arrowHeadSizePt,
   lineBBox,
   parseHexColor,
   rotatePoint,
   type Annotation,
   type FreeTextAnnotation,
-  type FreeTextFont
+  type FreeTextFont,
+  type LineAnnotation
 } from '../shared/annotations'
 import { PDFBool, PDFDict } from 'pdf-lib'
 
@@ -48,7 +50,10 @@ export async function saveDoc(
     const path = sources[id]
     if (!path) throw new Error(`No path registered for source ${id}`)
     const bytes = await readFile(path)
-    loaded.set(id, await PDFDocument.load(bytes))
+    // Many PDFs carry encryption metadata (permission flags) with an empty
+    // user password; they open and render fine. pdf-lib refuses these unless
+    // told to ignore it, which would otherwise break Save/Export/Print.
+    loaded.set(id, await PDFDocument.load(bytes, { ignoreEncryption: true }))
   }
 
   const out = await PDFDocument.create()
@@ -141,8 +146,8 @@ function writeAnnotations(doc: PDFDocument, page: PDFPage, anns: Annotation[]): 
   const existing = node.Annots()
   const arr = existing instanceof PDFArray ? existing : ctx.obj([])
 
-  // Lazy per-page cache of embedded standard fonts (only built if a rotated
-  // free-text annotation needs an AP stream that draws glyphs).
+  // Lazy per-page cache of embedded standard fonts, built on demand when a
+  // free-text annotation's AP stream needs to draw glyphs.
   const fontRefs: Partial<Record<FreeTextFont, PDFRef>> = {}
   const getFontRef = (font: FreeTextFont): PDFRef => {
     if (fontRefs[font]) return fontRefs[font]!
@@ -180,6 +185,10 @@ function writeAnnotations(doc: PDFDocument, page: PDFPage, anns: Annotation[]): 
       })
       if (!a.author) dict.delete(PDFName.of('T'))
       dict.set(PDFName.of('CA'), PDFNumber.of(a.opacity))
+      // PDFium (Chromium's PDF viewer) doesn't synthesize an appearance for
+      // Line annotations, so without an explicit /AP the whole arrow is
+      // invisible in those viewers. Always bake one.
+      attachLineAppearance(ctx, dict, a, bb)
     } else if (a.kind === 'note') {
       const x1 = a.x
       const y1 = a.y
@@ -222,10 +231,11 @@ function writeAnnotations(doc: PDFDocument, page: PDFPage, anns: Annotation[]): 
       })
       if (!a.author) dict.delete(PDFName.of('T'))
       dict.set(PDFName.of('CA'), PDFNumber.of(a.opacity))
-      if (rot !== 0) {
-        dict.set(PDFName.of('PdfRotation'), PDFNumber.of(rot))
-        attachFreeTextAppearance(ctx, dict, a, bb, getFontRef(a.font))
-      }
+      if (rot !== 0) dict.set(PDFName.of('PdfRotation'), PDFNumber.of(rot))
+      // Always bake an /AP: viewers that synthesize from /DA invent their own
+      // border + text layout (Brave draws a red box around the text), which
+      // diverges from how we render it. The AP makes the appearance authoritative.
+      attachFreeTextAppearance(ctx, dict, a, bb, getFontRef(a.font))
     } else if (a.kind === 'rect' || a.kind === 'oval') {
       const rgb = parseHexColor(a.stroke) ?? [0.8, 0.2, 0.2]
       const rot = a.rotation ?? 0
@@ -249,10 +259,10 @@ function writeAnnotations(doc: PDFDocument, page: PDFPage, anns: Annotation[]): 
         const fillRgb = parseHexColor(a.fill)
         if (fillRgb) dict.set(PDFName.of('IC'), ctx.obj(fillRgb))
       }
-      if (rot !== 0) {
-        dict.set(PDFName.of('PdfRotation'), PDFNumber.of(rot))
-        attachShapeAppearance(ctx, dict, a, bb)
-      }
+      if (rot !== 0) dict.set(PDFName.of('PdfRotation'), PDFNumber.of(rot))
+      // Always bake an /AP so external viewers match our stroke width / fill
+      // exactly rather than re-deriving from /C + /BS.
+      attachShapeAppearance(ctx, dict, a, bb)
     } else {
       continue
     }
@@ -385,6 +395,50 @@ function rotationPrologue(
   const e = cx - (c * (innerW / 2) + -s * (innerH / 2))
   const f = cy - (s * (innerW / 2) + c * (innerH / 2))
   return `${fmt(a)} ${fmt(b)} ${fmt(cc)} ${fmt(d)} ${fmt(e)} ${fmt(f)} cm\n`
+}
+
+/**
+ * Bake a /AP /N appearance for a line / arrow. Coordinates are in the form's
+ * local space (annotation /Rect bottom-left = origin), so we subtract the
+ * bbox origin from each endpoint. The geometry mirrors the renderer's
+ * `drawSegmentWithHead`: the shaft is shortened by 0.6·headLen so it doesn't
+ * cross the open arrowhead wedge, and the head is two strokes meeting at the
+ * tip. PDF user space is Y-up, so no axis flip is needed.
+ */
+function attachLineAppearance(
+  ctx: PDFContext,
+  dict: PDFDict,
+  a: LineAnnotation,
+  bb: { x: number; y: number; w: number; h: number }
+): void {
+  const rgb = parseHexColor(a.stroke) ?? [0.8, 0.2, 0.2]
+  const x1 = a.x1 - bb.x
+  const y1 = a.y1 - bb.y
+  const x2 = a.x2 - bb.x
+  const y2 = a.y2 - bb.y
+  const dx = x2 - x1
+  const dy = y2 - y1
+  const len = Math.hypot(dx, dy)
+  const headLen = a.kind === 'arrow' ? arrowHeadSizePt(a.strokeWidth) : 0
+  let ops = `q\n${fmt(rgb[0])} ${fmt(rgb[1])} ${fmt(rgb[2])} RG\n`
+  ops += `${fmt(a.strokeWidth)} w\n1 J\n1 j\n`
+  if (len > 0) {
+    const shaftEndX = headLen > 0 ? x2 - (dx / len) * headLen * 0.6 : x2
+    const shaftEndY = headLen > 0 ? y2 - (dy / len) * headLen * 0.6 : y2
+    ops += `${fmt(x1)} ${fmt(y1)} m\n${fmt(shaftEndX)} ${fmt(shaftEndY)} l\nS\n`
+    if (headLen > 0) {
+      const angle = Math.atan2(dy, dx)
+      const wing = Math.PI / 7 // ~25.7°, matches the canvas head
+      const hx1 = x2 - headLen * Math.cos(angle - wing)
+      const hy1 = y2 - headLen * Math.sin(angle - wing)
+      const hx2 = x2 - headLen * Math.cos(angle + wing)
+      const hy2 = y2 - headLen * Math.sin(angle + wing)
+      ops += `${fmt(hx1)} ${fmt(hy1)} m\n${fmt(x2)} ${fmt(y2)} l\n${fmt(hx2)} ${fmt(hy2)} l\nS\n`
+    }
+  }
+  ops += 'Q\n'
+  const ref = buildFormXObject(ctx, ops, bb.w, bb.h)
+  dict.set(PDFName.of('AP'), ctx.obj({ N: ref }))
 }
 
 function attachShapeAppearance(

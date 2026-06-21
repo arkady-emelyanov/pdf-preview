@@ -57,11 +57,18 @@ Save writes standard PDF annot dicts via pdf-lib's low-level `context.obj`:
 threaded through `DocInfo.author`; only stamped if the annotation doesn't
 already carry one, so paste preserves the original).
 
-Rotated rect/oval/freetext additionally get a Form XObject `/AP` `/N` with a
-`cos sin -sin cos tx ty cm` matrix so external viewers see the rotation; we
-also write our own `/PdfRotation` (radians) for exact round-trip. NM ids
-carry `OWN_NM_PREFIX = 'p4l-'`; `stripOwnedAnnotations` removes only those
-before re-writing, so foreign annotations stay byte-for-byte.
+Every annotation also gets a Form XObject `/AP` `/N` appearance stream, baked
+to match exactly what our renderer draws (`attachLineAppearance` /
+`attachShapeAppearance` / `attachFreeTextAppearance`). This is required, not
+optional: PDFium-based viewers (Chromium, Brave) render *nothing* for a `/Line`
+without an AP, and synthesize their own border + text layout for `/FreeText`
+from `/DA`, both of which diverge from our rendering. We still write the native
+dict entries (`/L`, `/LE`, `/C`, `/DA`, `/BS`, `/IC`) as a fallback for viewers
+that prefer them. Rotated rect/oval/freetext bake the rotation into the AP via a
+`cos sin -sin cos tx ty cm` matrix (`rotationPrologue`) and additionally write
+our own `/PdfRotation` (radians) for exact round-trip. NM ids carry
+`OWN_NM_PREFIX = 'p4l-'`; `stripOwnedAnnotations` removes only those before
+re-writing, so foreign annotations stay byte-for-byte.
 
 ## Forms
 
@@ -105,12 +112,19 @@ so the running window matches our installed `.desktop`'s
 
 ## MIME registration (packaged only)
 
-`mime.ts` runs once on first packaged launch (`$APPIMAGE` set + flag missing):
-writes `~/.local/share/applications/pdf-preview.desktop` pointing at
-`$APPIMAGE`, copies the icon to `~/.local/share/icons/hicolor/512x512/apps/`,
-runs `update-desktop-database` + `gtk-update-icon-cache`. **Does not** call
+On first packaged launch (`$APPIMAGE` set + flag missing) `mime.ts` writes
+`~/.local/share/applications/pdf-preview.desktop` pointing at `$APPIMAGE`,
+copies the icon to `~/.local/share/icons/hicolor/512x512/apps/`, runs
+`update-desktop-database` + `gtk-update-icon-cache`. **Does not** call
 `xdg-mime default` — picking the default handler is the user's choice and
 goes through the first-launch dialog in `defaultHandler.ts`.
+
+On every later packaged launch it reconciles: if the `.desktop`'s `Exec=` no
+longer matches the current `$APPIMAGE` (the user moved the binary), it rewrites
+the file. The `.desktop` filename is stable, so an existing `xdg-mime default`
+keeps resolving once `Exec=` is fixed — we don't re-touch the default. Without
+this, a moved AppImage orphans the entry and double-clicking a PDF silently
+fails. `$APPIMAGE` (not `argv[0]`/mountpoint) is the stable on-disk path.
 
 ## Linux file-dialog quirks
 

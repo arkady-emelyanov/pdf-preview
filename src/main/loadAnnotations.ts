@@ -122,31 +122,37 @@ function readRgb(arr: PDFArray | undefined, fallback: string): string {
 
 /** Parse annotations from a file. Returns `pageCount`-many arrays. */
 export async function loadAnnotations(filePath: string): Promise<Annotation[][]> {
-  let doc: PDFDocument
+  // Annotation parsing is best-effort: a malformed or genuinely-encrypted PDF
+  // can blow up anywhere in pdf-lib's lazy page-tree walk (e.g. getPageCount
+  // chasing a broken object ref), not just at load(). `ignoreEncryption: true`
+  // lets load() succeed where it used to throw, so the parse below must be
+  // guarded too — otherwise the failure escapes and takes down pdf:open. On
+  // any failure we return no annotations; the document still opens and renders
+  // via PDFium.
   try {
     const bytes = await readFile(filePath)
-    doc = await PDFDocument.load(bytes)
+    const doc = await PDFDocument.load(bytes, { ignoreEncryption: true })
+    const out: Annotation[][] = []
+    for (let pi = 0; pi < doc.getPageCount(); pi++) {
+      const page = doc.getPage(pi)
+      const annotsObj = page.node.Annots()
+      const list: Annotation[] = []
+      if (annotsObj instanceof PDFArray) {
+        for (let j = 0; j < annotsObj.size(); j++) {
+          const entry = annotsObj.get(j)
+          const dict =
+            entry instanceof PDFRef ? doc.context.lookup(entry, PDFDict) : (entry as PDFDict)
+          if (!(dict instanceof PDFDict)) continue
+          const ann = parseAnnotation(dict)
+          if (ann) list.push(ann)
+        }
+      }
+      out.push(list)
+    }
+    return out
   } catch {
     return []
   }
-  const out: Annotation[][] = []
-  for (let pi = 0; pi < doc.getPageCount(); pi++) {
-    const page = doc.getPage(pi)
-    const annotsObj = page.node.Annots()
-    const list: Annotation[] = []
-    if (annotsObj instanceof PDFArray) {
-      for (let j = 0; j < annotsObj.size(); j++) {
-        const entry = annotsObj.get(j)
-        const dict =
-          entry instanceof PDFRef ? doc.context.lookup(entry, PDFDict) : (entry as PDFDict)
-        if (!(dict instanceof PDFDict)) continue
-        const ann = parseAnnotation(dict)
-        if (ann) list.push(ann)
-      }
-    }
-    out.push(list)
-  }
-  return out
 }
 
 function parseAnnotation(dict: PDFDict): Annotation | null {

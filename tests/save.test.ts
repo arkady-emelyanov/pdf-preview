@@ -191,6 +191,10 @@ describe('saveDoc (annotations)', () => {
     expect(LE.size()).toBe(2)
     expect(LE.lookup(0).toString()).toBe('/None')
     expect(LE.lookup(1).toString()).toBe('/OpenArrow')
+    // Must carry an /AP /N appearance stream — PDFium-based viewers (Chromium,
+    // Brave) render nothing for a Line annotation without one.
+    const ap = dict.lookup(PDFName.of('AP'), PDFDict)
+    expect(ap.lookup(PDFName.of('N'))).toBeDefined()
   })
 
   it('writes a /Circle annotation for an oval and includes /IC when filled', async () => {

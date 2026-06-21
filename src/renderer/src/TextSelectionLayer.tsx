@@ -208,9 +208,13 @@ export function TextSelectionLayer({
           width: cssW,
           height: cssH,
           cursor: active ? 'text' : 'default',
-          // Keep capturing right-clicks while a selection exists, even after
-          // the user switched away from the text tool, so they can still copy.
-          pointerEvents: active || hasSelectionHere ? 'auto' : 'none'
+          // Only intercept pointer events while the text tool is active. When
+          // we're merely retaining a selection (so the user can still copy
+          // after switching tools) the container must be click-through —
+          // otherwise it sits above the AnnotationLayer and eats the drag,
+          // breaking drawing. Right-click Copy is kept alive on the selection
+          // rects below, which stay interactive on their own.
+          pointerEvents: active ? 'auto' : 'none'
         }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
@@ -222,12 +226,18 @@ export function TextSelectionLayer({
           <div
             key={i}
             className="text-select-rect"
+            onContextMenu={onContextMenu}
             style={{
               position: 'absolute',
               left: r.x * scale,
               top: r.y * scale,
               width: r.w * scale,
-              height: r.h * scale
+              height: r.h * scale,
+              // When the text tool is active the container handles all pointer
+              // events (drag-select), so the rects must be transparent to them.
+              // When inactive the container is click-through, so the rects
+              // themselves catch the right-click that powers "Copy".
+              pointerEvents: active ? 'none' : 'auto'
             }}
           />
         ))}
