@@ -33,7 +33,12 @@ jobs:
           npm version "$VER" --no-git-tag-version --allow-same-version
 
       - name: Build the AppImage
-        run: npm run build:appimage
+        # --publish never: electron-builder otherwise tries to publish to GitHub
+        # itself (it auto-publishes when a tag is present) and fails without a
+        # token. We attach the artifact ourselves in the next step.
+        run: |
+          npm run build
+          npx electron-builder --linux AppImage --publish never
 
       - name: Attach the AppImage to the release
         env:
